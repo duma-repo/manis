@@ -14,11 +14,10 @@ import java.util.Properties;
 public class ManisClient {
     final ClientProtocol manisDb;
 
-    public ManisClient(URI manisDbUri, Configuration conf) {
+    public ManisClient(URI manisDbUri, Configuration conf) throws IOException {
         ManisDbProxies.ProxyInfo<ClientProtocol> proxyInfo = null;
 
-        proxyInfo = ManisDbProxies.createProxy(conf,
-                manisDbUri, ClientProtocol.class);
+        proxyInfo = ManisDbProxies.createProxy(conf, manisDbUri, ClientProtocol.class);
         this.manisDb = proxyInfo.getProxy();
     }
 
