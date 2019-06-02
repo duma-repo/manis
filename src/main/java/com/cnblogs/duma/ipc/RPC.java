@@ -23,7 +23,7 @@ public class RPC {
     private static final Map<Class<?>, RpcEngine> PROTOCOL_ENGINS
             = new HashMap<Class<?>, RpcEngine>();
 
-    private static final String RPC_ENGINE = "rpc.engine";
+    public static final String RPC_ENGINE = "rpc.engine";
 
     /**
      * 为协议（接口）设置RPC引擎
@@ -94,6 +94,10 @@ public class RPC {
                                          int rpcTimeOut)
         throws IOException {
 
+        /**
+         * todo 解析为什么需要new对象，而不是将getProxy定义成静态方法
+         * 静态方法和单例对象的区别
+         */
         return getProtocolEngine(protocol, conf).getProxy(protocol, clientVersion,
                 address, conf, factory, rpcTimeOut);
     }

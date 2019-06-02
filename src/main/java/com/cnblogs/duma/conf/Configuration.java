@@ -10,6 +10,7 @@ public class Configuration {
 
     public Configuration() {
         //todo init properties
+        properties = new Properties();
     }
 
     public void set(String name, String value) {

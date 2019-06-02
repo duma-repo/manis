@@ -1,9 +1,14 @@
 package com.cnblogs.duma;
 
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.ipc.ProtobufRpcEngine;
 import com.cnblogs.duma.ipc.RPC;
-import com.cnblogs.duma.protocol.ClientManisDbProtocolSerializable;
+import com.cnblogs.duma.ipc.SerializableRpcEngine;
 import com.cnblogs.duma.protocol.ClientProtocol;
+import com.cnblogs.duma.protocol.ManagerManisDbPritocolSerializable;
+import com.cnblogs.duma.protocol.ManagerProtocol;
+import com.cnblogs.duma.protocolPB.ClientManisDbProtocolPB;
+import com.cnblogs.duma.protocolPB.ClientManisDbProtocolTranslatorPB;
 import com.cnblogs.duma.server.ManisDb;
 
 import javax.net.SocketFactory;
@@ -35,21 +40,32 @@ public class ManisDbProxies {
         }
     }
 
+    private static ManagerProtocol createManisDbProxyWithManagerProtocol(Configuration conf,
+        InetSocketAddress address) throws IOException {
+        RPC.setProtocolEngine(conf, ManagerManisDbPritocolSerializable.class, SerializableRpcEngine.class);
+
+        final long version = RPC.getProtocolVersion(ManagerManisDbPritocolSerializable.class);
+        int rpcTimeOut = 6000;
+        ManagerManisDbPritocolSerializable proxy =
+                RPC.getProtocolProxy(ManagerManisDbPritocolSerializable.class, version,
+                        address, conf, SocketFactory.getDefault(), rpcTimeOut);
+        return proxy;
+    }
 
     private static ClientProtocol createManisDbProxyWithClientProtocol(Configuration conf,
         InetSocketAddress address)
         throws IOException {
-        //todo 1. 获取配置 2. 根据配置获取代理 RPC.getProxy(...)  默认先用Serializable处理
+        RPC.setProtocolEngine(conf, ClientManisDbProtocolPB.class, ProtobufRpcEngine.class);
 
-        final long version = RPC.getProtocolVersion(ClientManisDbProtocolSerializable.class);
+        final long version = RPC.getProtocolVersion(ClientManisDbProtocolPB.class);
         int rpcTimeOut = 6000;
-        ClientManisDbProtocolSerializable proxy =
-                RPC.getProtocolProxy(ClientManisDbProtocolSerializable.class,
+        ClientManisDbProtocolPB proxy =
+                RPC.getProtocolProxy(ClientManisDbProtocolPB.class,
                         version, address, conf,
                         SocketFactory.getDefault(), rpcTimeOut);
 
-        //todo serializable 使用ClientProtocol代理， protobuf 需要用装饰类
-        return proxy;
+        //todo protbuf 适配器
+        return new ClientManisDbProtocolTranslatorPB(proxy);
     }
 
     @SuppressWarnings("unchecked")
@@ -61,6 +77,8 @@ public class ManisDbProxies {
         T proxy;
         if (xface == ClientProtocol.class) {
             proxy =  (T) createManisDbProxyWithClientProtocol(conf, manisDbAddr);
+        } else if (xface == ManagerProtocol.class) {
+            proxy = (T) createManisDbProxyWithManagerProtocol(conf, manisDbAddr);
         } else {
             String message = "Unsupported protocol found when creating the proxy " +
                     "connection to ManisDb: " +

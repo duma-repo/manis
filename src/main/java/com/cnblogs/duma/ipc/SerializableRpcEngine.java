@@ -26,11 +26,11 @@ public class SerializableRpcEngine implements RpcEngine {
 
     private static class Invoker implements RpcInvocationHandler {
 
-        Invoker(Class<?> protocol, InetSocketAddress address,
+        private Invoker(Class<?> protocol, InetSocketAddress address,
                 Configuration conf, SocketFactory factory,
                 int rpcTimeOut)
                 throws IOException {
-            System.out.println("init Invoker");
+            System.out.println("init Invoker in SerializableRpcEngine.");
         }
 
         @Override
