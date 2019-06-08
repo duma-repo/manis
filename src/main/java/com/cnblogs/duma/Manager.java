@@ -18,6 +18,6 @@ public class Manager {
     }
 
     public boolean setMaxTable(int tableNum) {
-        return true;
+        return this.manisDb.setMaxTable(tableNum);
     }
 }

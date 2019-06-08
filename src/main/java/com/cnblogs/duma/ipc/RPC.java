@@ -16,6 +16,21 @@ import java.util.Map;
  * @author duma
  */
 public class RPC {
+    public enum RpcKind {
+        /**
+         * RPC_SERIALIZABLE: SerializableRpcEngine
+         * RPC_PROTOCOL_BUFFER: ProtoBufRpcEngine
+         */
+        RPC_SERIALIZABLE ((short) 1),
+        RPC_PROTOCOL_BUFFER ((short) 2);
+
+        public final short value;
+
+
+        RpcKind(short value) {
+            this.value = value;
+        }
+    }
 
     /**
      * 接口与RPC引擎对应关系的缓存

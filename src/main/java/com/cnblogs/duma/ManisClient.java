@@ -30,7 +30,7 @@ public class ManisClient {
      */
     public int getTableCount(String dbName, String tbName)
             throws IOException {
-        return 0;
+        return this.manisDb.getTableCount(dbName, tbName);
     }
 
 }
