@@ -7,6 +7,6 @@ import com.cnblogs.duma.ipc.ProtocolInfo;
  */
 @ProtocolInfo(protocolName = ManisConstants.MANAGER_MANISDB_PROTOCOL_NAME,
         protocolVersion = 1)
-public interface ManagerManisDbPritocolSerializable
+public interface ManagerManisDbProtocolSerializable
         extends ManagerProtocol {
 }

@@ -101,6 +101,15 @@ public class RPC {
         }
     }
 
+    public static String getProtocolName(Class<?> protocol) {
+        if (protocol == null) {
+            return null;
+        }
+
+        ProtocolInfo anno = protocol.getAnnotation(ProtocolInfo.class);
+        return anno == null ? protocol.getName() : anno.protocolName();
+    }
+
     public static <T> T getProtocolProxy(Class<T> protocol,
                                          long clientVersion,
                                          InetSocketAddress address,

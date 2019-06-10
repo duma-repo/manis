@@ -5,7 +5,7 @@ import com.cnblogs.duma.ipc.ProtobufRpcEngine;
 import com.cnblogs.duma.ipc.RPC;
 import com.cnblogs.duma.ipc.SerializableRpcEngine;
 import com.cnblogs.duma.protocol.ClientProtocol;
-import com.cnblogs.duma.protocol.ManagerManisDbPritocolSerializable;
+import com.cnblogs.duma.protocol.ManagerManisDbProtocolSerializable;
 import com.cnblogs.duma.protocol.ManagerProtocol;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolPB;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolTranslatorPB;
@@ -42,12 +42,12 @@ public class ManisDbProxies {
 
     private static ManagerProtocol createManisDbProxyWithManagerProtocol(Configuration conf,
         InetSocketAddress address) throws IOException {
-        RPC.setProtocolEngine(conf, ManagerManisDbPritocolSerializable.class, SerializableRpcEngine.class);
+        RPC.setProtocolEngine(conf, ManagerManisDbProtocolSerializable.class, SerializableRpcEngine.class);
 
-        final long version = RPC.getProtocolVersion(ManagerManisDbPritocolSerializable.class);
+        final long version = RPC.getProtocolVersion(ManagerManisDbProtocolSerializable.class);
         int rpcTimeOut = 6000;
-        ManagerManisDbPritocolSerializable proxy =
-                RPC.getProtocolProxy(ManagerManisDbPritocolSerializable.class, version,
+        ManagerManisDbProtocolSerializable proxy =
+                RPC.getProtocolProxy(ManagerManisDbProtocolSerializable.class, version,
                         address, conf, SocketFactory.getDefault(), rpcTimeOut);
         return proxy;
     }
