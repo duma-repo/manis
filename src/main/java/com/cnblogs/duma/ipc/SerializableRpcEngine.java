@@ -25,6 +25,14 @@ public class SerializableRpcEngine implements RpcEngine {
         private Object[] parameters;
         private String declaringClassProtocolName;
 
+        /**
+         * 无参构造，为了在反序列化时使用反射实例化对象
+         */
+        @SuppressWarnings("unused")
+        public Invocation() {
+            parameters = new Object[]{};
+        }
+
         public Invocation(Method method, Object[] args) {
             this.methodName = method.getName();
             this.parameterClasses = method.getParameterTypes();
@@ -44,7 +52,7 @@ public class SerializableRpcEngine implements RpcEngine {
 
             objOut.flush();
 
-            out.write(byteArrOut.toByteArray().length);
+            out.writeInt(byteArrOut.toByteArray().length);
             out.write(byteArrOut.toByteArray());
         }
 
@@ -65,6 +73,21 @@ public class SerializableRpcEngine implements RpcEngine {
                 e.printStackTrace();
                 throw new IOException("Class not found when deserialize.");
             }
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder buffer = new StringBuilder();
+            buffer.append(methodName);
+            buffer.append("(");
+            for (int i = 0; i < parameters.length; i++) {
+                if (i != 0) {
+                    buffer.append(", ");
+                }
+                buffer.append(parameters[i]);
+            }
+            buffer.append(")");
+            return buffer.toString();
         }
     }
 
