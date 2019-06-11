@@ -3,7 +3,6 @@ package com.cnblogs.duma.ipc;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.ObjectWritable;
 import com.cnblogs.duma.io.Writable;
-import com.sun.xml.internal.ws.api.ha.StickyFeature;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -43,6 +42,7 @@ public class SerializableRpcEngine implements RpcEngine {
 
         @Override
         public void write(DataOutput out) throws IOException {
+            //todo DataOutputBuffer
             ByteArrayOutputStream byteArrOut = new ByteArrayOutputStream();
             ObjectOutputStream objOut = new ObjectOutputStream(byteArrOut);
 
