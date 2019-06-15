@@ -1,5 +1,7 @@
 package com.cnblogs.duma.protocol;
 
+import java.io.IOException;
+
 public interface ClientProtocol {
 
     /**
@@ -8,5 +10,5 @@ public interface ClientProtocol {
      * @param tbName 表名称
      * @return 表中的记录数
      */
-    public int getTableCount(String dbName, String tbName);
+    public int getTableCount(String dbName, String tbName) throws IOException;
 }
