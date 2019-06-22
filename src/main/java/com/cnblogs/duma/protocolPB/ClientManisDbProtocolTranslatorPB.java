@@ -17,11 +17,10 @@ public class ClientManisDbProtocolTranslatorPB implements
 
     @Override
     public int getTableCount(String dbName, String tbName) throws IOException {
-        GetTableCountRequestProto request =
-                GetTableCountRequestProto.newBuilder()
-                    .setDbName(dbName)
-                    .setTbName(tbName)
-                    .build();
+        GetTableCountRequestProto request = GetTableCountRequestProto.newBuilder()
+                .setDbName(dbName)
+                .setTbName(tbName)
+                .build();
         try {
             return rpcProxy.getTableCount(null, request).getResult();
         } catch (ServiceException e) {

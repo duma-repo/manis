@@ -28,9 +28,7 @@ public class SerializableRpcEngine implements RpcEngine {
          * 无参构造，为了在反序列化时使用反射实例化对象
          */
         @SuppressWarnings("unused")
-        public Invocation() {
-            parameters = new Object[]{};
-        }
+        public Invocation() {}
 
         public Invocation(Method method, Object[] args) {
             this.methodName = method.getName();
@@ -49,7 +47,6 @@ public class SerializableRpcEngine implements RpcEngine {
             objOut.writeObject(declaringClassProtocolName);
             objOut.writeObject(methodName);
             objOut.writeObject(parameters);
-
             objOut.flush();
 
             out.writeInt(byteArrOut.toByteArray().length);
