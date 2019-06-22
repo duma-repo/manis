@@ -14,5 +14,7 @@ public class TestManisClient {
         ManisClient manisClient = new ManisClient(URI.create("manis://localhost:9000"), new Configuration());
 
         assert manisClient.manisDb instanceof ClientProtocol;
+
+        manisClient.getTableCount("db1", "tb1");
     }
 }
