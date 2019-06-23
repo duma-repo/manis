@@ -96,6 +96,7 @@ public class SerializableRpcEngine implements RpcEngine {
                 Configuration conf, SocketFactory factory,
                 int rpcTimeOut)
                 throws IOException {
+            this.remoteId = new Client.ConnectionId(address, protocol, rpcTimeOut, conf);
             this.client = new Client(ObjectWritable.class, conf, factory);
         }
 
