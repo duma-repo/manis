@@ -7,6 +7,8 @@ import java.util.Properties;
  */
 public class Configuration {
     Properties properties;
+    public static final String TRUE_STR = "true";
+    public static final String FALSE_STR = "false";
 
     public Configuration() {
         //todo init properties
@@ -23,6 +25,30 @@ public class Configuration {
 
     public String get(String name, String defaultValue) {
         return properties.getProperty(name, defaultValue);
+    }
+
+    public int getInt(String name, int defaultValue) {
+        String valueStr = get(name);
+        if (valueStr == null) {
+            return defaultValue;
+        }
+        return Integer.parseInt(valueStr);
+    }
+
+    public boolean getBoolean(String name, boolean defaultValue) {
+        String valueStr = get(name);
+        if (valueStr == null) {
+            return defaultValue;
+        }
+
+        valueStr = valueStr.toLowerCase();
+        if (TRUE_STR.equals(valueStr)) {
+            return true;
+        } else if (FALSE_STR.equals(valueStr)) {
+            return false;
+        } else {
+            return defaultValue;
+        }
     }
 
     public void setClass(String name, Class<?> theClass, Class<?> xface) {
