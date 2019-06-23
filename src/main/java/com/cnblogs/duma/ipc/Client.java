@@ -3,27 +3,89 @@ package com.cnblogs.duma.ipc;
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import javax.net.SocketFactory;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.util.Objects;
 
 public class Client {
+    private final Log LOG = LogFactory.getLog(Client.class);
     private Class<? extends Writable> valueClass;
     final private Configuration conf;
-    private SocketFactory factory;
+    /** 创建 socket 的方式 */
+    private SocketFactory socketFactory;
+    private final int connectionTimeOut;
 
     public Client(Class<? extends Writable> valueClass, Configuration conf,
                   SocketFactory factory) {
         this.valueClass = valueClass;
         this.conf = conf;
-        this.factory = factory;
+        this.socketFactory = factory;
+        this.connectionTimeOut = conf.getInt(CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_KEY,
+                CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
     }
 
     public Writable call(RPC.RpcKind rpcKind, Writable rpcRequest, ConnectionId remoteId)
         throws IOException {
         return null;
+    }
+
+    private class Connection extends Thread {
+        private final ConnectionId remoteId;
+        private InetSocketAddress server;
+
+        private Socket socket = null;
+        private DataInputStream in;
+        private DataOutputStream out;
+
+        private final int rpcTimeOut;
+        /** 连接空闲时最大休眠时间，单位：毫秒 */
+        private final int maxIdleTime;
+        /** 如果 true 表示禁用 Nagle 算法 */
+        private final boolean tcpNoDelay;
+        /** 是否需要发送ping message */
+        private final boolean doPing;
+        /** 发送 ping message 的时间间隔， 单位：毫秒 */
+        private final int pingInterval;
+        private int serviceClass;
+
+
+        public Connection(ConnectionId remoteId, int serviceClass) throws IOException {
+            this.remoteId = remoteId;
+            this.server = remoteId.getAddress();
+            if (server.isUnresolved()) {
+                throw new UnknownHostException("Unknown host name : " + server.toString());
+            }
+            this.rpcTimeOut = remoteId.getRpcTimeOut();
+            this.maxIdleTime = remoteId.getMaxIdleTime();
+            this.tcpNoDelay = remoteId.isTcpNoDelay();
+            this.doPing = remoteId.isDoPing();
+            if (doPing) {
+                // 构造 RPC header with the callId as the ping callId todo ping message
+            }
+            this.pingInterval = remoteId.getPingInterval();
+            this.serviceClass = serviceClass;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("The ping interval is " + this.pingInterval + " ms.");
+            }
+
+            this.setName("IPC Client (" + socketFactory.hashCode() +") connection to " +
+                    server.toString());
+            this.setDaemon(true);
+        }
+
+        @Override
+        public void run() {
+            super.run();
+        }
     }
 
     /**
