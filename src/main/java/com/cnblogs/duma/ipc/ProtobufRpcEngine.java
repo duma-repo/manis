@@ -44,6 +44,7 @@ public class ProtobufRpcEngine implements RpcEngine {
                        SocketFactory factory,
                        int rpcTimeOut) {
             this.protocolName = RPC.getProtocolName(protocol);
+            this.client = new Client(null, conf, factory);
             System.out.println("init Invoker in ProtobufRpcEngine.");
         }
 

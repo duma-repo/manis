@@ -15,6 +15,7 @@ public class TestManager {
         Manager manager = new Manager(URI.create("manis://localhost:9000"), new Configuration());
 
         assert manager.manisDb instanceof ManagerProtocol;
+        assert manager.manisDb != null;
 
         manager.setMaxTable(100);
     }

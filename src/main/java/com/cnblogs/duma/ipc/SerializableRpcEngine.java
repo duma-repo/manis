@@ -96,8 +96,7 @@ public class SerializableRpcEngine implements RpcEngine {
                 Configuration conf, SocketFactory factory,
                 int rpcTimeOut)
                 throws IOException {
-            //todo init client
-            System.out.println("init Invoker in SerializableRpcEngine.");
+            this.client = new Client(ObjectWritable.class, conf, factory);
         }
 
         @Override
