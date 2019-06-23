@@ -18,6 +18,9 @@ import java.util.Objects;
 
 public class Client {
     private final Log LOG = LogFactory.getLog(Client.class);
+
+    private static final ThreadLocal<Integer> callId = new ThreadLocal<Integer>();
+
     private Class<? extends Writable> valueClass;
     final private Configuration conf;
     /** 创建 socket 的方式 */
@@ -33,8 +36,84 @@ public class Client {
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
     }
 
+    /**
+     * 代表 rpc 调用的类
+     */
+    static class Call {
+        final int id;
+        Writable rpcRequest;
+        Writable rpcResponse;
+        IOException error;
+        final RPC.RpcKind rpcKind;
+        boolean done;
+
+        private Call(RPC.RpcKind rpcKind, Writable rpcRequest) {
+            this.rpcKind = rpcKind;
+            this.rpcRequest = rpcRequest;
+
+            // todo get id
+            id = callId.get();
+        }
+
+        /**
+         * 调用完成，唤醒调用者
+         */
+        public synchronized void callComplete() {
+            this.done = true;
+            notify();
+        }
+
+        /**
+         * 调用过程发生错误是，设置异常信息
+         * @param error 异常信息
+         */
+        public synchronized void setException(IOException error) {
+            this.error = error;
+            callComplete();
+        }
+
+        /**
+         * 设置返回值.
+         * Notify the caller the call is done.
+         * todo synchronized
+         * @param rpcResponse 调用的返回值
+         */
+        public synchronized void setRpcResponse(Writable rpcResponse) {
+            this.rpcResponse = rpcResponse;
+            callComplete();
+        }
+
+        public synchronized Writable getRpcResponse() {
+            return rpcResponse;
+        }
+    }
+
+    /**
+     * 调用 RPC 服务端，相关信息定义在 <code>remoteId</code>
+     *
+     * @param rpcKind - rpc 类型
+     * @param rpcRequest -  包含序列化方法和参数
+     * @param remoteId - rpc server
+     * @returns rpc 返回值
+     * 抛网络异常或者远程代码执行异常
+     */
     public Writable call(RPC.RpcKind rpcKind, Writable rpcRequest, ConnectionId remoteId)
         throws IOException {
+        return call(rpcKind, rpcRequest, remoteId, RPC.RPC_SERVICE_CLASS_DEFAULT);
+    }
+
+    /**
+     * 调用 RPC 服务端，相关信息定义在 <code>remoteId</code>
+     * @param rpcKind - rpc 类型
+     * @param rpcRequest - 包含序列化方法和参数
+     * @param remoteId - rpc server
+     * @param serviceClass service class for rpc
+     * @return rpc 返回值
+     * @throws IOException 抛网络异常或者远程代码执行异常
+     */
+    public Writable call(RPC.RpcKind rpcKind, Writable rpcRequest,
+                         ConnectionId remoteId, int serviceClass)
+            throws IOException {
         return null;
     }
 

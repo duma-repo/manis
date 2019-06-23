@@ -16,6 +16,7 @@ import java.util.Map;
  * @author duma
  */
 public class RPC {
+    final static int RPC_SERVICE_CLASS_DEFAULT = 0;
     public enum RpcKind {
         /**
          * RPC_SERIALIZABLE: SerializableRpcEngine
