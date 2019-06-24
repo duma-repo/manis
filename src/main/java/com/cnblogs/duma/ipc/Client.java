@@ -15,11 +15,17 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Client {
     private final Log LOG = LogFactory.getLog(Client.class);
 
+    /** A counter for generating call IDs. */
+    private static final AtomicInteger callIdCounter = new AtomicInteger();
+
+    /** 在当前线程保存自己的唯一的一个调用 id */
     private static final ThreadLocal<Integer> callId = new ThreadLocal<Integer>();
+
 
     private Class<? extends Writable> valueClass;
     final private Configuration conf;
@@ -52,7 +58,16 @@ public class Client {
             this.rpcRequest = rpcRequest;
 
             // todo get id
-            id = callId.get();
+            Integer id = callId.get();
+            if (id == null) {
+                // 返回 null 说明可以取一个新的自增id
+                this.id = nextCallId();
+            } else {
+                // 返回非null，可能是重试，重试的情况不需要获取新的id
+                callId.set(null);
+                this.id = id;
+            }
+            //todo get id
         }
 
         /**
@@ -86,6 +101,17 @@ public class Client {
         public synchronized Writable getRpcResponse() {
             return rpcResponse;
         }
+    }
+
+    /**
+     * 返回自增的 id，由于存在线程安全问题，因此 counter 是 atomic 类型
+     * 为了防止 id 是取负值，需要将返回结果与 0x7FFFFFFF 做按位与操作，
+     * 因此 id 取值范围是 [ 0, 2^31 - 1 ]，当 id 达到最大值，会重新从 0 开始自增
+     *
+     * @return 下一个自增的 id
+     */
+    public static int nextCallId() {
+        return callIdCounter.getAndIncrement() & 0x7FFFFFFF;
     }
 
     /**
