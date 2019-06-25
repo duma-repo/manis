@@ -42,6 +42,10 @@ public class Client {
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
     }
 
+    Call createCall(RPC.RpcKind rpcKind, Writable rpcRequest) {
+        return new Call(rpcKind, rpcRequest);
+    }
+
     /**
      * 代表 rpc 调用的类
      */
@@ -57,7 +61,6 @@ public class Client {
             this.rpcKind = rpcKind;
             this.rpcRequest = rpcRequest;
 
-            // todo get id
             Integer id = callId.get();
             if (id == null) {
                 // 返回 null 说明可以取一个新的自增id
@@ -67,7 +70,7 @@ public class Client {
                 callId.set(null);
                 this.id = id;
             }
-            //todo get id
+            //todo retry
         }
 
         /**
@@ -140,6 +143,8 @@ public class Client {
     public Writable call(RPC.RpcKind rpcKind, Writable rpcRequest,
                          ConnectionId remoteId, int serviceClass)
             throws IOException {
+        final Call call = createCall(rpcKind, rpcRequest);
+        Connection connection = getConnection(remoteId, call, serviceClass);
         return null;
     }
 
@@ -191,6 +196,15 @@ public class Client {
         public void run() {
             super.run();
         }
+    }
+
+    /**
+     * 从缓冲池中获取一个 Connection 对象，如果池中不存在，需要创建对象并放入缓冲池
+     *
+     * @return Connection 对象
+     */
+    private Connection getConnection(ConnectionId remoteId, Call call, int serviceClass) {
+        return null;
     }
 
     /**
