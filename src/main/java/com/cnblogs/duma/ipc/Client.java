@@ -14,7 +14,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.Hashtable;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Client {
@@ -27,7 +29,9 @@ public class Client {
     private static final ThreadLocal<Integer> callId = new ThreadLocal<Integer>();
 
 
+    private final Hashtable<ConnectionId, Connection> connections = new Hashtable<>();
     private Class<? extends Writable> valueClass;
+    private AtomicBoolean running = new AtomicBoolean(true);
     final private Configuration conf;
     /** 创建 socket 的方式 */
     private SocketFactory socketFactory;
@@ -167,6 +171,10 @@ public class Client {
         private final int pingInterval;
         private int serviceClass;
 
+        /** 标识是否应该关闭连接，默认值： false */
+        private AtomicBoolean shouldCloaseConnection = new AtomicBoolean();
+        private Hashtable<Integer, Call> calls = new Hashtable<>();
+
 
         public Connection(ConnectionId remoteId, int serviceClass) throws IOException {
             this.remoteId = remoteId;
@@ -192,6 +200,15 @@ public class Client {
             this.setDaemon(true);
         }
 
+        private synchronized boolean addCall(Call call) {
+            if (shouldCloaseConnection.get()) {
+                return false;
+            }
+            calls.put(call.id, call);
+            notify();
+            return true;
+        }
+
         @Override
         public void run() {
             super.run();
@@ -203,7 +220,23 @@ public class Client {
      *
      * @return Connection 对象
      */
-    private Connection getConnection(ConnectionId remoteId, Call call, int serviceClass) {
+    private Connection getConnection(ConnectionId remoteId,
+                                     Call call, int serviceClass) throws IOException {
+        if (!running.get()) {
+            throw new IOException("The client is stopped.");
+        }
+        Connection connection;
+        do {
+            synchronized (connections) {
+               connection = connections.get(remoteId);
+               if (connection == null) {
+                   connection = new Connection(remoteId, serviceClass);
+                   connections.put(remoteId, connection);
+               }
+            }
+        } while (connection.addCall(call));
+
+        //todo setupiostream
         return null;
     }
 
