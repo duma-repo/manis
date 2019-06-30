@@ -4,6 +4,8 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.*;
 import java.nio.channels.Channel;
 
@@ -49,6 +51,24 @@ public class NetUtils {
             throw new ConnectException("Localhost targeted connection resulted in a loopback. " +
                     "No daemon is listening on the target port."
             );
+        }
+    }
+
+    public static InputStream getInputStream(Socket socket) throws IOException {
+        if (socket.getChannel() == null) {
+            return socket.getInputStream();
+        } else {
+            // todo Channel 非空是的 InputStream
+            return null;
+        }
+    }
+
+    public static OutputStream getOutputStream(Socket socket) throws IOException {
+        if (socket.getChannel() == null) {
+            return socket.getOutputStream();
+        } else {
+            // todo Channel 非空是的 InputStream
+            return null;
         }
     }
 }

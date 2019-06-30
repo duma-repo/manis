@@ -6,12 +6,10 @@ import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.net.NetUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import sun.nio.ch.Net;
 
 import javax.net.SocketFactory;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -25,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author duma
  */
 public class Client {
-    private final Log LOG = LogFactory.getLog(Client.class);
+    private static final Log LOG = LogFactory.getLog(Client.class);
 
     /** A counter for generating call IDs. */
     private static final AtomicInteger callIdCounter = new AtomicInteger();
@@ -264,6 +262,8 @@ public class Client {
                     LOG.debug("Connecting to " + server);
                 }
                 setupConnection();
+                InputStream inStream = NetUtils.getInputStream(socket);
+                OutputStream outStream = NetUtils.getOutputStream(socket);
             } catch (Throwable e) {
                 LOG.info(e);
             }
