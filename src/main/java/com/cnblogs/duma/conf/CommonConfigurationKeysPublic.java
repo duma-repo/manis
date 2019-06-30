@@ -27,4 +27,11 @@ public class CommonConfigurationKeysPublic {
             "ipc.client.connect.timeout";
     /** IPC_CLIENT_CONNECT_TIMEOUT_KEY 的默认值，20s */
     public static final int     IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT = 20000;
+
+    /** rpc 客户端连接服务端超时的最大重试次数 */
+    public static final String  IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_KEY =
+            "ipc.client.connect.max.retries.on.timeouts";
+
+    /** IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_KEY 的默认值，45次 */
+    public static final int  IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_DEFAULT = 45;
 }

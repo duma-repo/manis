@@ -3,6 +3,7 @@ package com.cnblogs.duma.ipc;
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
+import com.cnblogs.duma.net.NetUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -13,12 +14,16 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.Hashtable;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * @author duma
+ */
 public class Client {
     private final Log LOG = LogFactory.getLog(Client.class);
 
@@ -168,7 +173,9 @@ public class Client {
         /** 是否需要发送ping message */
         private final boolean doPing;
         /** 发送 ping message 的时间间隔， 单位：毫秒 */
-        private final int pingInterval;
+        private int pingInterval;
+        /** socket 连接超时最大重试次数 */
+        private final int maxRetriesOnSocketTimeouts;
         private int serviceClass;
 
         /** 标识是否应该关闭连接，默认值： false */
@@ -176,13 +183,14 @@ public class Client {
         private Hashtable<Integer, Call> calls = new Hashtable<>();
 
 
-        public Connection(ConnectionId remoteId, int serviceClass) throws IOException {
+        public Connection(ConnectionId remoteId, Integer serviceClass) throws IOException {
             this.remoteId = remoteId;
             this.server = remoteId.getAddress();
             if (server.isUnresolved()) {
                 throw new UnknownHostException("Unknown host name : " + server.toString());
             }
             this.rpcTimeOut = remoteId.getRpcTimeOut();
+            this.maxRetriesOnSocketTimeouts = remoteId.getMaxRetriesOnSocketTimeouts();
             this.maxIdleTime = remoteId.getMaxIdleTime();
             this.tcpNoDelay = remoteId.isTcpNoDelay();
             this.doPing = remoteId.isDoPing();
@@ -200,6 +208,12 @@ public class Client {
             this.setDaemon(true);
         }
 
+        /**
+         * 向该 Connection 对象的 call 队列加入一个 call
+         * 同时唤醒等待的线程
+         * @param call 加入的队列得元素
+         * @return 如果连接处于关闭状态是添加 call，返回 false。正确加入队列返回 true
+         */
         private synchronized boolean addCall(Call call) {
             if (shouldCloaseConnection.get()) {
                 return false;
@@ -207,6 +221,81 @@ public class Client {
             calls.put(call.id, call);
             notify();
             return true;
+        }
+
+        private synchronized void setupConnection() throws IOException {
+            short ioFailures = 0;
+            short timeOutFailures = 0;
+            while (true) {
+                try {
+                    this.socket = socketFactory.createSocket();
+                    this.socket.setTcpNoDelay(tcpNoDelay);
+                    this.socket.setKeepAlive(true);
+
+                    NetUtils.connect(socket, server, connectionTimeOut);
+
+                    if (rpcTimeOut > 0) {
+                        // 用 rpcTimeOut 覆盖 pingInterval
+                        pingInterval = rpcTimeOut;
+                    }
+                    socket.setSoTimeout(pingInterval);
+                    return;
+                } catch (SocketTimeoutException ste) {
+                    handleConnectionTimeout(timeOutFailures++, maxRetriesOnSocketTimeouts, ste);
+                } catch (IOException ioe) {
+                    //todo retry
+                    throw ioe;
+                }
+            }
+        }
+
+        /**
+         * 连接 server，建立 IO 流。向 server 发送 header 信息
+         * 启动线程，等待返回信息。由于多个线程持有相同 Connection 对象，需要保证只有一个线程可以调用 start 方法
+         * 因此该方法需要用 synchronized 修饰
+         */
+        private synchronized void setupIOStreams() {
+            if (socket != null || shouldCloaseConnection.get()) {
+                return;
+            }
+
+            try {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Connecting to " + server);
+                }
+                setupConnection();
+            } catch (Throwable e) {
+                LOG.info(e);
+            }
+        }
+
+        private void closeConnection() {
+            if (socket == null) {
+                return;
+            }
+            try {
+                socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+                LOG.warn("Not able to close a socket", e);
+            }
+            //将 socket 置位 null 为了下次能够重新建立连接
+            socket = null;
+        }
+
+        private void handleConnectionTimeout(
+                int curRetries, int maxRetries, IOException ioe) throws IOException {
+
+            closeConnection();
+
+            /**
+             * 达到重试的最大次数，将异常抛出
+             */
+            if (curRetries >= maxRetries) {
+                throw ioe;
+            }
+            LOG.info("Retrying connect to server: " + server + ". Already tried "
+                    + curRetries + " time(s); maxRetries=" + maxRetries);
         }
 
         @Override
@@ -234,9 +323,11 @@ public class Client {
                    connections.put(remoteId, connection);
                }
             }
-        } while (connection.addCall(call));
+        } while (!connection.addCall(call));
 
-        //todo setupiostream
+        //我们没有在上面 synchronized (connections) 代码块调用该方法
+        //原因是如果服务端慢，建立连接会花费很长时间，会拖慢整个系统
+        connection.setupIOStreams();
         return null;
     }
 
@@ -259,6 +350,8 @@ public class Client {
         private final boolean doPing;
         /** 发送 ping message 的时间间隔， 单位：毫秒 */
         private final int pingInterval;
+        /** socket 连接超时最大重试次数 */
+        private final int maxRetriesOnSocketTimeouts;
         private final Configuration conf;
 
         public ConnectionId(InetSocketAddress address,
@@ -272,6 +365,9 @@ public class Client {
             this.maxIdleTime = conf.getInt(
                     CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_MAXIDLETIME_KEY,
                     CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_MAXIDLETIME_DEFAULT);
+            this.maxRetriesOnSocketTimeouts = conf.getInt(
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_KEY,
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_DEFAULT);
             this.tcpNoDelay = conf.getBoolean(
                     CommonConfigurationKeysPublic.IPC_CLIENT_TCPNODELAY_KEY,
                     CommonConfigurationKeysPublic.IPC_CLIENT_TCPNODELAY_DEFAULT);
@@ -312,6 +408,10 @@ public class Client {
 
         public int getPingInterval() {
             return pingInterval;
+        }
+
+        public int getMaxRetriesOnSocketTimeouts() {
+            return maxRetriesOnSocketTimeouts;
         }
 
         @Override
