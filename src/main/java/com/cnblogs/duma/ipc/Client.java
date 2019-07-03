@@ -18,6 +18,7 @@ import java.util.Hashtable;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author duma
@@ -179,6 +180,8 @@ public class Client {
         /** 标识是否应该关闭连接，默认值： false */
         private AtomicBoolean shouldCloaseConnection = new AtomicBoolean();
         private Hashtable<Integer, Call> calls = new Hashtable<>();
+        /** I/O 活动的最新时间 */
+        private AtomicLong lastActivity = new AtomicLong();
 
 
         public Connection(ConnectionId remoteId, Integer serviceClass) throws IOException {
@@ -204,6 +207,13 @@ public class Client {
             this.setName("IPC Client (" + socketFactory.hashCode() +") connection to " +
                     server.toString());
             this.setDaemon(true);
+        }
+
+        /**
+         * 将当前时间更新为 I/O 最新活动时间
+         */
+        private void touch() {
+            lastActivity.set(System.currentTimeMillis());
         }
 
         /**
@@ -264,9 +274,57 @@ public class Client {
                 setupConnection();
                 InputStream inStream = NetUtils.getInputStream(socket);
                 OutputStream outStream = NetUtils.getOutputStream(socket);
+                writeConnectionHeader(outStream);
+
+                if (doPing) {
+                    /**
+                     * todo ping相关
+                     */
+                }
+
+                /**
+                 * DataInputStream 可以支持 Java 原子类型的输入输入
+                 * BufferedInputStream 具有缓冲的作用
+                 */
+                this.in = new DataInputStream(new BufferedInputStream(inStream));
+                this.out = new DataOutputStream(new BufferedOutputStream(outStream));
+
+//                writeConnectionContext todo 写连接的上下文
+
+                touch();
+
+                // 建立连接，发送完连接头和连接上线文后，启动 receiver 线程，用来接收响应信息
+                start();
+                return;
             } catch (Throwable e) {
+                //todo 异常处理
                 LOG.info(e);
             }
+        }
+
+        /**
+         * 建立连接后发送的连接头（header）
+         * +----------------------------------+
+         * |  "mrpc" 4 bytes                  |
+         * +----------------------------------+
+         * |  Version (1 byte)                |
+         * +----------------------------------+
+         * |  Service Class (1 byte)          |
+         * +----------------------------------+
+         * |  AuthProtocol (1 byte)           |
+         * +----------------------------------+
+         * @param outStream 输出流
+         * @throws IOException
+         */
+        private void writeConnectionHeader(OutputStream outStream) throws IOException {
+           DataOutputStream out = new DataOutputStream(new BufferedOutputStream(outStream));
+
+           out.write(RpcConstants.HEADER.array());
+           out.write(RpcConstants.CURRENT_VERSION);
+           out.write(serviceClass);
+           // 暂无授权协议，写 0
+           out.write(0);
+           out.flush();
         }
 
         private void closeConnection() {
