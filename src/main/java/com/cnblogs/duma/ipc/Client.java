@@ -8,6 +8,7 @@ import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionCon
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.net.NetUtils;
 import com.cnblogs.duma.util.ProtoUtil;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import sun.nio.ch.Net;
@@ -20,6 +21,7 @@ import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.Hashtable;
 import java.util.Objects;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,7 +48,14 @@ public class Client {
     private final int connectionTimeOut;
     private final byte[] clientId;
 
-    final static int CONNECTION_CONTEXT_CALL_ID = -3;
+    private final static int CONNECTION_CONTEXT_CALL_ID = -3;
+
+    /**
+     * 用来发送 调用header、方法名和参数信息
+     * Executor 可以提供线程池
+     * todo 需要修改
+     */
+    private final ExecutorService sendParamsExecutor;
 
     public Client(Class<? extends Writable> valueClass, Configuration conf,
                   SocketFactory factory) {
@@ -56,6 +65,10 @@ public class Client {
         this.connectionTimeOut = conf.getInt(CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_KEY,
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
         this.clientId = ClientId.getClientId();
+        this.sendParamsExecutor = Executors.newCachedThreadPool(
+                new ThreadFactoryBuilder().setDaemon(true)
+                    .setNameFormat("IPC Parameter Sending Thread #%d")
+                    .build());
     }
 
     Call createCall(RPC.RpcKind rpcKind, Writable rpcRequest) {
@@ -189,6 +202,9 @@ public class Client {
         private AtomicBoolean shouldCloaseConnection = new AtomicBoolean();
         /** 关闭的原因 */
         private IOException closeException;
+
+        private final Object sendRpcRequestLock = new Object();
+
         private Hashtable<Integer, Call> calls = new Hashtable<>();
         /** I/O 活动的最新时间 */
         private AtomicLong lastActivity = new AtomicLong();
@@ -395,6 +411,82 @@ public class Client {
         @Override
         public void run() {
             super.run();
+        }
+
+        /**
+         * 向服务端发送 rpc 请求
+         * @param call rpc 调用包含的信息
+         */
+        public void sendRpcRequest(final Call call)
+                throws IOException, InterruptedException {
+            if (shouldCloaseConnection.get()) {
+                return;
+            }
+
+
+            final ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            final DataOutputStream tmpOut = new DataOutputStream(bo);
+            // 暂时没有重试机制，因此参数 retryCount=-1
+            RpcRequestHeaderProto header = ProtoUtil.makeRpcRequestHeader(
+                    call.rpcKind, RpcRequestHeaderProto.OperationProto.RPC_FINAL_PACKET,
+                    call.id, -1, clientId);
+            header.writeDelimitedTo(tmpOut);
+            call.rpcRequest.write(tmpOut);
+
+            synchronized (sendRpcRequestLock) {
+                Future<?> senderFuture = sendParamsExecutor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        //多线程并发调用服务端，需要锁住发送流 out
+                        try {
+                            synchronized (Connection.this.out) {
+                                if (shouldCloaseConnection.get()) {
+                                    return;
+                                }
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug(getName() + " sending #" + call.id);
+                                }
+
+                                byte[] data = bo.toByteArray();
+                                int dataLen = bo.size();
+                                out.writeInt(dataLen);
+                                out.write(data, 0, dataLen);
+                                out.flush();
+                            }
+                        } catch (IOException e) {
+                            /**
+                             * 如果在这里发生异常，将处于不可恢复状态
+                             * 因此，关闭连接，终止所有未完成的调用
+                             */
+                            markClosed(e);
+                        } finally {
+                            //todo close stream 关闭临时输出流
+                            try {
+                                tmpOut.close();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                });
+
+                try {
+                    senderFuture.get();
+                } catch (ExecutionException e) {
+                    // Java 有异常链，该异常可能是另一个异常引起的
+                    // 调用 getCause 方法获得真正的异常
+                    Throwable cause = e.getCause();
+
+                    /**
+                     * 这里只能是运行时异常，因为 IOException 异常以及在上面的匿名内部类捕获了
+                     */
+                    if (cause instanceof RuntimeException) {
+                        throw (RuntimeException) cause;
+                    } else {
+                        throw new RuntimeException("unexpected checked exception", cause);
+                    }
+                }
+            }
         }
 
         private synchronized void markClosed(IOException e) {
