@@ -4,7 +4,9 @@ import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.DataOutputOutputStream;
 import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.ProtobufRpcEngineProtos.RequestHeaderProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.util.ProtoUtil;
+import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.GeneratedMessage;
 import com.google.protobuf.Message;
 import com.google.protobuf.ServiceException;
@@ -107,7 +109,7 @@ public class ProtobufRpcEngine implements RpcEngine {
     }
 
     interface RpcWrapper extends Writable {
-
+        int getLength();
     }
 
     /**
@@ -170,6 +172,27 @@ public class ProtobufRpcEngine implements RpcEngine {
          * @throws IOException
          */
         abstract T parseHeaderFrom(byte[] bytes) throws IOException;
+
+        /**
+         * 包括两部分
+         * 1. header 序列化后的长度及长度本身的 varInt32 编码后的长度
+         * 2. request 序列化后的长度以及长度本身 varInt32 编码后的长度
+         * @return
+         */
+        @Override
+        public int getLength() {
+            int headerLen = requestHeader.getSerializedSize();
+            int requestLen;
+            if (theRequest != null) {
+                requestLen = theRequest.getSerializedSize();
+            } else if (theRequestRead != null) {
+                requestLen = theRequestRead.length;
+            } else {
+                throw new IllegalArgumentException("getLength on uninitialized RpcWrapper");
+            }
+            return CodedOutputStream.computeRawVarint32Size(headerLen) + headerLen +
+                    CodedOutputStream.computeRawVarint32Size(requestLen) + requestLen;
+        }
     }
 
     private static class RpcRequestWrapper extends
@@ -190,6 +213,19 @@ public class ProtobufRpcEngine implements RpcEngine {
         public String toString() {
             return requestHeader.getDeclaringClassProtocolName() + "." +
                     requestHeader.getMethodName();
+        }
+    }
+
+    public static class RpcRequestMessageWrapper extends
+            BaseRpcMessageWithHeader<RpcRequestHeaderProto> {
+
+        public RpcRequestMessageWrapper(RpcRequestHeaderProto requestHeader, Message theRequest) {
+            super(requestHeader, theRequest);
+        }
+
+        @Override
+        RpcRequestHeaderProto parseHeaderFrom(byte[] bytes) throws IOException {
+            return RpcRequestHeaderProto.parseFrom(bytes);
         }
     }
 }

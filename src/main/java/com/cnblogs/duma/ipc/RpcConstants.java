@@ -7,4 +7,6 @@ public class RpcConstants {
     public static final ByteBuffer HEADER = ByteBuffer.wrap("mrpc".getBytes());
 
     public static final byte CURRENT_VERSION = 9;
+
+    public static final int INVALID_RETRY_COUNT = -1;
 }

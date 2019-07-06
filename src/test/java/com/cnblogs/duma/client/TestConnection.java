@@ -5,13 +5,19 @@ import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.ipc.Client;
 import com.cnblogs.duma.ipc.Client.ConnectionId;
+import com.cnblogs.duma.ipc.ProtobufRpcEngine.*;
+import com.cnblogs.duma.ipc.RPC;
+import com.cnblogs.duma.ipc.RpcConstants;
+import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.*;
 import com.cnblogs.duma.ipc.protobuf.ProtobufRpcEngineProtos;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.*;
 import com.google.protobuf.Message;
 import org.junit.Test;
 
 import javax.net.SocketFactory;
-import java.io.IOException;
+import java.io.*;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -57,7 +63,7 @@ public class TestConnection {
         }
     }
 
-    @Test
+//    @Test
     public void testSetupConnection() throws Exception {
         Configuration conf = new Configuration();
         // 1ms 模拟连接超时
@@ -86,6 +92,101 @@ public class TestConnection {
         Method methodSetupConnection = clazz.getDeclaredMethod("setupConnection");
         methodSetupConnection.setAccessible(true);
         methodSetupConnection.invoke(connection);
+    }
+
+    public Client getClient(Configuration conf) {
+        Client.ConnectionId remoteId = new Client.ConnectionId(new InetSocketAddress("127.0.0.1", 8000),
+                AppTest.class, 1000, conf);
+
+        return new Client(null, new Configuration(), SocketFactory.getDefault());
+    }
+
+    public ConnectionId getRemoteId(Configuration conf) {
+        return new Client.ConnectionId(new InetSocketAddress("127.0.0.1", 8000),
+                AppTest.class, 1000, conf);
+    }
+
+    public Object getConnection(Client client, ConnectionId remoteId, Configuration conf) throws Exception {
+        /**
+         * 构造 Connection 对象
+         * private 内部类的构造方法的参数需要传入外部类
+         */
+        Class clazz = Class.forName("com.cnblogs.duma.ipc.Client$Connection");
+        Constructor classConnectionConstructor = clazz.getConstructor(Client.class, ConnectionId.class, Integer.class);
+        classConnectionConstructor.setAccessible(true);
+        Object connection = classConnectionConstructor.newInstance(client, remoteId, 0);
+        return connection;
+    }
+
+    public Method getMethod(Class clazz, String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        /**
+         * 调用 setupConnection 方法
+         */
+        Method method = clazz.getDeclaredMethod(methodName, parameterTypes);
+        method.setAccessible(true);
+        return method;
+    }
+
+    public Field getField(Class clazz, String fieldName) throws NoSuchFieldException {
+        Field field = null;
+        try {
+            field = clazz.getDeclaredField(fieldName);
+        } catch (NoSuchFieldException e) {
+            field = clazz.getSuperclass().getDeclaredField(fieldName);
+        }
+        field.setAccessible(true);
+        return field;
+    }
+
+    public OutputStream getOutPutStream(OutputStream bo) {
+        return new DataOutputStream(bo);
+    }
+
+    @Test
+    public void testWriteConnectionContext() throws Exception {
+        Configuration conf = new Configuration();
+        Client client = getClient(conf);
+        ConnectionId remoteId = getRemoteId(conf);
+
+        Object connection = getConnection(client, remoteId, conf);
+        Class clazz = connection.getClass();
+        Method methodWriteConnectionContext =
+                getMethod(
+                        clazz,
+                        "writeConnectionContext",
+                        new Class[]{ConnectionId.class});
+
+
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        OutputStream outStream = getOutPutStream(bo);
+
+        Field fieldOut = getField(clazz, "out");
+        fieldOut.set(connection, outStream);
+
+        methodWriteConnectionContext.invoke(connection, remoteId);
+
+        assert bo.size() != 0;
+
+        /**
+         * 反序列化
+         */
+        ByteArrayInputStream baInputStream = new ByteArrayInputStream(bo.toByteArray());
+        DataInput in = new DataInputStream(baInputStream);
+        assert in.readInt() != 0;
+        RpcRequestMessageWrapper request = new RpcRequestMessageWrapper(null, null);
+        request.readFields(in);
+
+        Field requestHeaderField = getField(RpcRequestMessageWrapper.class, "requestHeader");
+        RpcRequestHeaderProto requestHeader = (RpcRequestHeaderProto)requestHeaderField.get(request);
+        assert requestHeader != null;
+        assert requestHeader.getRetryCount() == RpcConstants.INVALID_RETRY_COUNT;
+
+        Field theRequestReadField = getField(RpcRequestMessageWrapper.class, "theRequestRead");
+        byte[] theRequestRead = (byte[])theRequestReadField.get(request);
+        IpcConnectionContextProto connectionContext = IpcConnectionContextProto.parseFrom(theRequestRead);
+        assert connectionContext != null;
+        assert connectionContext.getProtocol().equals(RPC.getProtocolName(AppTest.class));
     }
 
 }

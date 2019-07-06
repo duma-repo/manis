@@ -103,9 +103,7 @@ public class TestSerDeser {
          * 判断 theRequestRead 字段反序列化
          */
         theRequestRead = (byte[]) theRequestReadField.get(newRpcReqWrapper);
-        System.out.println(theRequestRead.length);
         GetTableCountRequestProto deSerReq = GetTableCountRequestProto.parseFrom(theRequestRead);
-        System.out.println(deSerReq);
         assert deSerReq.getDbName().equals("db1");
         assert deSerReq.getTbName().equals("tb1");
     }

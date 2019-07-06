@@ -3,7 +3,11 @@ package com.cnblogs.duma.ipc;
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
+import com.cnblogs.duma.ipc.ProtobufRpcEngine.RpcRequestMessageWrapper;
+import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.net.NetUtils;
+import com.cnblogs.duma.util.ProtoUtil;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import sun.nio.ch.Net;
@@ -40,6 +44,9 @@ public class Client {
     /** 创建 socket 的方式 */
     private SocketFactory socketFactory;
     private final int connectionTimeOut;
+    private final byte[] clientId;
+
+    final static int CONNECTION_CONTEXT_CALL_ID = -3;
 
     public Client(Class<? extends Writable> valueClass, Configuration conf,
                   SocketFactory factory) {
@@ -48,6 +55,7 @@ public class Client {
         this.socketFactory = factory;
         this.connectionTimeOut = conf.getInt(CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_KEY,
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
+        this.clientId = ClientId.getClientId();
     }
 
     Call createCall(RPC.RpcKind rpcKind, Writable rpcRequest) {
@@ -179,6 +187,8 @@ public class Client {
 
         /** 标识是否应该关闭连接，默认值： false */
         private AtomicBoolean shouldCloaseConnection = new AtomicBoolean();
+        /** 关闭的原因 */
+        private IOException closeException;
         private Hashtable<Integer, Call> calls = new Hashtable<>();
         /** I/O 活动的最新时间 */
         private AtomicLong lastActivity = new AtomicLong();
@@ -289,16 +299,20 @@ public class Client {
                 this.in = new DataInputStream(new BufferedInputStream(inStream));
                 this.out = new DataOutputStream(new BufferedOutputStream(outStream));
 
-//                writeConnectionContext todo 写连接的上下文
+                writeConnectionContext(remoteId);
 
                 touch();
 
                 // 建立连接，发送完连接头和连接上线文后，启动 receiver 线程，用来接收响应信息
                 start();
                 return;
-            } catch (Throwable e) {
-                //todo 异常处理
-                LOG.info(e);
+            } catch (Throwable t) {
+                if (t instanceof IOException) {
+                    markClosed((IOException) t);
+                } else {
+                    markClosed(new IOException("Couldn't set up IO streams", t));
+                }
+                close();
             }
         }
 
@@ -325,6 +339,28 @@ public class Client {
            // 暂无授权协议，写 0
            out.write(0);
            out.flush();
+        }
+
+        /**
+         * 每次连接都要写连接上下文（context）
+         * @param remoteId
+         */
+        private void writeConnectionContext(ConnectionId remoteId) throws IOException {
+            IpcConnectionContextProto connectionContext =
+                    ProtoUtil.makeIpcConnectionContext(
+                            RPC.getProtocolName(remoteId.getProtocol()));
+
+            RpcRequestHeaderProto connectionContextHeader = ProtoUtil
+                    .makeRpcRequestHeader(RPC.RpcKind.RPC_PROTOCOL_BUFFER,
+                            RpcRequestHeaderProto.OperationProto.RPC_FINAL_PACKET,
+                            CONNECTION_CONTEXT_CALL_ID, RpcConstants.INVALID_RETRY_COUNT,
+                            clientId);
+
+            RpcRequestMessageWrapper request =
+                    new RpcRequestMessageWrapper(connectionContextHeader, connectionContext);
+
+            out.writeInt(request.getLength());
+            request.write(out);
         }
 
         private void closeConnection() {
@@ -359,6 +395,18 @@ public class Client {
         @Override
         public void run() {
             super.run();
+        }
+
+        private synchronized void markClosed(IOException e) {
+            if (shouldCloaseConnection.compareAndSet(false, true)) {
+                closeException = e;
+                notifyAll();
+            }
+        }
+
+        //todo close
+        private synchronized void close() {
+
         }
     }
 

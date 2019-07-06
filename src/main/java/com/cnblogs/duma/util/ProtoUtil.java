@@ -1,5 +1,12 @@
 package com.cnblogs.duma.util;
 
+import com.cnblogs.duma.ipc.Client;
+import com.cnblogs.duma.ipc.RPC;
+import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.*;
+import com.google.protobuf.ByteString;
+
 import java.io.DataInput;
 import java.io.IOException;
 
@@ -47,5 +54,36 @@ public class ProtoUtil {
             }
         }
         return result;
+    }
+
+    public static IpcConnectionContextProto makeIpcConnectionContext(
+            final String protocolName) {
+        IpcConnectionContextProto.Builder retBuilder = IpcConnectionContextProto.newBuilder();
+        retBuilder.setProtocol(protocolName);
+        /**
+         * 这里可以发送安全、授权以及用户信息相关的信息给服务端
+         * 为了简化，manis 中没有设置相关的信息
+         */
+        return retBuilder.build();
+    }
+
+    static RpcKindProto convertRpcKind(RPC.RpcKind rpcKind) {
+        switch (rpcKind) {
+            case RPC_SERIALIZABLE: return RpcKindProto.RPC_SERIALIZABLE;
+            case RPC_PROTOCOL_BUFFER: return RpcKindProto.RPC_PROTOCOL_BUFFER;
+            default: return null;
+        }
+    }
+
+    public static RpcRequestHeaderProto makeRpcRequestHeader(RPC.RpcKind rpcKind,
+            RpcRequestHeaderProto.OperationProto operation,
+            int callId, int retryCount, byte[] clientId) {
+        RpcRequestHeaderProto.Builder retBuilder = RpcRequestHeaderProto.newBuilder();
+
+        retBuilder.setRpcKind(convertRpcKind(rpcKind)).setRpcOp(operation)
+                .setCallId(callId).setRetryCount(retryCount)
+                .setClientId(ByteString.copyFrom(clientId));
+
+        return retBuilder.build();
     }
 }
