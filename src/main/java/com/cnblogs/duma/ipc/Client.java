@@ -56,6 +56,55 @@ public class Client {
      * todo 需要修改
      */
     private final ExecutorService sendParamsExecutor;
+    private final ClientExecutorServiceFactory clientExecutorFactory =
+            new ClientExecutorServiceFactory();
+
+    private static class ClientExecutorServiceFactory {
+        private int executorRefCount = 0;
+        private ExecutorService clientExecutor = null;
+
+        /**
+         * 获得 Executor 用来发送 rpc 调用参数
+         * 如果内部引用计数器（executorRefCount）为 0，初始化
+         * 否则直接返回 Executor
+         * 为了保证唯一性，调用该函数时需要加锁
+         * @return ExecutorService 实例
+         */
+        synchronized ExecutorService refAndGetInstance() {
+            if (executorRefCount == 0) {
+                clientExecutor = Executors.newCachedThreadPool(
+                        new ThreadFactoryBuilder().setDaemon(true)
+                                .setNameFormat("IPC Parameter Sending Thread #%d")
+                                .build());
+            }
+            executorRefCount++;
+            return clientExecutor;
+        }
+
+        synchronized void unrefAndCleanup() {
+            executorRefCount--;
+            assert executorRefCount >= 0;
+
+            if (executorRefCount == 0) {
+                clientExecutor.shutdown();
+                /**
+                 * 一分钟后如果仍然没有关闭或者在等待过程中被中断，
+                 * 则调用 {@link ExecutorService#shutdownNow()}
+                 */
+                try {
+                    if (!clientExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
+                        clientExecutor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    LOG.error("Interrupted while waiting for clientExecutor" +
+                            "to stop", e);
+                    clientExecutor.shutdownNow();
+                }
+
+                clientExecutor = null;
+            }
+        }
+    }
 
     public Client(Class<? extends Writable> valueClass, Configuration conf,
                   SocketFactory factory) {
@@ -65,10 +114,7 @@ public class Client {
         this.connectionTimeOut = conf.getInt(CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_KEY,
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
         this.clientId = ClientId.getClientId();
-        this.sendParamsExecutor = Executors.newCachedThreadPool(
-                new ThreadFactoryBuilder().setDaemon(true)
-                    .setNameFormat("IPC Parameter Sending Thread #%d")
-                    .build());
+        this.sendParamsExecutor = clientExecutorFactory.refAndGetInstance();
     }
 
     Call createCall(RPC.RpcKind rpcKind, Writable rpcRequest) {
