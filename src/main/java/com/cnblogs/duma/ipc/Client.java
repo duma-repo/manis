@@ -230,7 +230,7 @@ public class Client {
         }
 
         boolean interrupted = false;
-        // 为了能在 call 上调用 wait 方法，我们需要在 call 对象上加锁
+        // 为了能在 call 上调用 wait 方法，需要在 call 对象上加锁
         synchronized (call) {
             while (!call.done) {
                 try {
