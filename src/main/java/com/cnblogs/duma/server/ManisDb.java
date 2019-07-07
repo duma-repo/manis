@@ -1,5 +1,7 @@
 package com.cnblogs.duma.server;
 
+import com.cnblogs.duma.conf.Configuration;
+
 import java.net.InetSocketAddress;
 import java.net.URI;
 
@@ -10,6 +12,8 @@ public class ManisDb {
 
     private static final String MANIS_URI_SCHEMA = "manis";
     private static final int DEFAULT_PORT = 8866;
+
+    private ManisDbRpcServer rpcServer;
 
     public static InetSocketAddress getAddress(String host) {
         return new InetSocketAddress(host, DEFAULT_PORT);
@@ -31,4 +35,27 @@ public class ManisDb {
         return getAddress(host);
     }
 
+    public ManisDb(Configuration conf) {
+        init(conf);
+    }
+
+    /**
+     * 初始化 ManisDb
+     */
+    void init(Configuration conf) {
+        rpcServer = createRpcServer(conf);
+        //todo start service
+    }
+
+    ManisDbRpcServer createRpcServer(Configuration conf) {
+        return new ManisDbRpcServer(conf);
+    }
+
+    public static void main(String[] args) {
+        Configuration conf = new Configuration();
+
+        ManisDb manisDb = new ManisDb(conf);
+        //todo join
+
+    }
 }
