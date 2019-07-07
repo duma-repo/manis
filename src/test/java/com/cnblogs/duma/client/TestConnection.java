@@ -3,14 +3,17 @@ package com.cnblogs.duma.client;
 import com.cnblogs.duma.AppTest;
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.Client;
 import com.cnblogs.duma.ipc.Client.ConnectionId;
 import com.cnblogs.duma.ipc.ProtobufRpcEngine.*;
 import com.cnblogs.duma.ipc.RPC;
 import com.cnblogs.duma.ipc.RpcConstants;
+import com.cnblogs.duma.ipc.SerializableRpcEngine;
 import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.*;
 import com.cnblogs.duma.ipc.protobuf.ProtobufRpcEngineProtos;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.*;
+import com.cnblogs.duma.util.ProtoUtil;
 import com.google.protobuf.Message;
 import org.junit.Test;
 
@@ -189,4 +192,89 @@ public class TestConnection {
         assert connectionContext.getProtocol().equals(RPC.getProtocolName(AppTest.class));
     }
 
+    @Test
+    public void testSendRpcRequest() throws Exception {
+        Configuration conf = new Configuration();
+        Client client = getClient(conf);
+        ConnectionId remoteId = getRemoteId(conf);
+
+        Object connection = getConnection(client, remoteId, conf);
+
+        Class clazzClient = client.getClass();
+        Class clazzConnection = connection.getClass();
+
+        /**
+         *
+         */
+        Class clazzCall = null;
+        for (Class clazz : clazzClient.getDeclaredClasses()) {
+            if (clazz.getName().equals("com.cnblogs.duma.ipc.Client$Call")) {
+                clazzCall = clazz;
+            }
+        }
+        Method sendRpcRequestMethod =
+                getMethod(clazzConnection, "sendRpcRequest", new Class[]{clazzCall});
+
+        Method createCallMethod =
+                getMethod(clazzClient, "createCall", new Class[]{RPC.RpcKind.class, Writable.class});
+
+        TestInvocation request = new TestInvocation();
+        Object call = createCallMethod.invoke(client, RPC.RpcKind.RPC_SERIALIZABLE, request);
+
+        /**
+         * set client out field
+         */
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        OutputStream outStream = getOutPutStream(bo);
+        Field fieldOut = getField(clazzConnection, "out");
+        fieldOut.set(connection, outStream);
+
+        sendRpcRequestMethod.invoke(connection, call);
+
+        ByteArrayInputStream baInputStream = new ByteArrayInputStream(bo.toByteArray());
+        DataInput in = new DataInputStream(baInputStream);
+        assert in.readInt() != 0;
+
+        int headerLen = ProtoUtil.readRawVarInt32(in);
+        byte[] headerBs = new byte[headerLen];
+        in.readFully(headerBs);
+        RpcRequestHeaderProto header = RpcRequestHeaderProto.parseFrom(headerBs);
+        assert header != null;
+        assert header.getRpcKind() == RpcKindProto.RPC_SERIALIZABLE;
+
+        request.readFields(in);
+    }
+
+    public static class TestInvocation implements Writable {
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            ByteArrayOutputStream byteArrOut = new ByteArrayOutputStream();
+            ObjectOutputStream objOut = new ObjectOutputStream(byteArrOut);
+
+            objOut.writeObject("test");
+            objOut.flush();
+
+            out.writeInt(byteArrOut.toByteArray().length);
+            out.write(byteArrOut.toByteArray());
+        }
+
+        @Override
+        public void readFields(DataInput in) throws IOException {
+            int length = in.readInt();
+            byte[] byteArr = new byte[length];
+            in.readFully(byteArr);
+
+            ByteArrayInputStream byteArrIn = new ByteArrayInputStream(byteArr);
+            ObjectInputStream objIn = new ObjectInputStream(byteArrIn);
+
+            try {
+                String f0 = (String) objIn.readObject();
+                assert f0.equals("test");
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+                throw new IOException("Class not found when deserialize.");
+            }
+        }
+    }
 }

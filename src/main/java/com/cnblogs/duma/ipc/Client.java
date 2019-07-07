@@ -174,6 +174,11 @@ public class Client {
             throws IOException {
         final Call call = createCall(rpcKind, rpcRequest);
         Connection connection = getConnection(remoteId, call, serviceClass);
+        try {
+            connection.sendRpcRequest(call);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         return null;
     }
 
@@ -415,7 +420,7 @@ public class Client {
 
         /**
          * 向服务端发送 rpc 请求
-         * @param call rpc 调用包含的信息
+         * @param call 包含 rpc 调用相关的信息
          */
         public void sendRpcRequest(final Call call)
                 throws IOException, InterruptedException {
@@ -423,7 +428,17 @@ public class Client {
                 return;
             }
 
-
+            /**
+             * 序列化需要被发送出去的信息，这里由实际调用方法的线程来完成
+             * 实际发送前各个线程可以并行地准备（序列化）待发送的信息，而不是发送线程（sendParamsExecutor）
+             * 这样做的好处一方面减少锁的粒度，另一方面序列化过程中抛异常每个线程可以单独、独立地报告
+             *
+             * 发送的格式:
+             * 0) 下面 1、2 两项的长度之和，4字节
+             * 1) RpcRequestHeader
+             * 2) RpcRequest
+             * 1、2两项在下面代码序列化
+             */
             final ByteArrayOutputStream bo = new ByteArrayOutputStream();
             final DataOutputStream tmpOut = new DataOutputStream(bo);
             // 暂时没有重试机制，因此参数 retryCount=-1
@@ -526,7 +541,7 @@ public class Client {
         //我们没有在上面 synchronized (connections) 代码块调用该方法
         //原因是如果服务端慢，建立连接会花费很长时间，会拖慢整个系统
         connection.setupIOStreams();
-        return null;
+        return connection;
     }
 
     /**
