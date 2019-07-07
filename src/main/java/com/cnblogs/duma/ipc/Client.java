@@ -15,10 +15,10 @@ import sun.nio.ch.Net;
 
 import javax.net.SocketFactory;
 import java.io.*;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.net.*;
+import java.rmi.RemoteException;
 import java.util.Hashtable;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -175,11 +175,56 @@ public class Client {
         final Call call = createCall(rpcKind, rpcRequest);
         Connection connection = getConnection(remoteId, call, serviceClass);
         try {
+            // 发送 rpc 请求
             connection.sendRpcRequest(call);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            LOG.warn("interrupted waiting to send rpc request to server", e);
+            throw new IOException(e);
         }
-        return null;
+
+        boolean interrupted = false;
+        // 为了能在 call 上调用 wait 方法，我们需要在 call 对象上加锁
+        synchronized (call) {
+            while (!call.done) {
+                try {
+                    call.wait();
+                } catch (InterruptedException e) {
+                    // 保存被中断过的标记
+                    interrupted = true;
+                }
+            }
+
+            if (interrupted) {
+                // 结束等待并且被中断过， 需要设置中断
+                Thread.currentThread().interrupt();
+            }
+
+            if (call.error != null) {
+                if (call.error instanceof RemoteException) {
+                    call.error.fillInStackTrace();
+                    throw call.error;
+                } else { // 本地异常
+                    InetSocketAddress address = connection.getServer();
+                    Class<? extends Throwable> clazz = call.error.getClass();
+                    try {
+                        Constructor<? extends Throwable> ctor = clazz.getConstructor(String.class);
+                        String msg = "Call From " + InetAddress.getLocalHost()
+                                + " to " + address.getHostName() + ":" + address.getPort()
+                                + " failed on exception: " + call.error;
+                        Throwable t = ctor.newInstance(msg);
+                        t.initCause(call.error);
+                        throw t;
+                    } catch (Throwable e) {
+                        LOG.warn("Unable to construct exception of type " +
+                                clazz + ": it has no (String) constructor", e);
+                        throw call.error;
+                    }
+                }
+            } else {
+                return call.getRpcResponse();
+            }
+        }
     }
 
     private class Connection extends Thread {
@@ -411,6 +456,10 @@ public class Client {
             }
             LOG.info("Retrying connect to server: " + server + ". Already tried "
                     + curRetries + " time(s); maxRetries=" + maxRetries);
+        }
+
+        public InetSocketAddress getServer() {
+            return server;
         }
 
         @Override
