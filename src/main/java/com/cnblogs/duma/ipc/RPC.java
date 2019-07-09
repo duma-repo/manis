@@ -126,4 +126,15 @@ public class RPC {
         return getProtocolEngine(protocol, conf).getProxy(protocol, clientVersion,
                 address, conf, factory, rpcTimeOut);
     }
+
+    /**
+     * 该类用于构造 RPC Server
+     */
+    public static class Builder {
+        private Configuration conf;
+
+        public Builder(Configuration conf) {
+            this.conf = conf;
+        }
+    }
 }

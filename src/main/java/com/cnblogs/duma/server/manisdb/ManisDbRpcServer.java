@@ -3,9 +3,11 @@ package com.cnblogs.duma.server.manisdb;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.ipc.ProtobufRpcEngine;
 import com.cnblogs.duma.ipc.RPC;
+import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos.ClientManisDbProtocol;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolPB;
 import com.cnblogs.duma.protocolPB.ClientManisdbProtocolServerSideTranslatorPB;
 import com.cnblogs.duma.server.protocol.ManisDbProtocols;
+import com.google.protobuf.BlockingService;
 
 import java.io.IOException;
 
@@ -22,6 +24,8 @@ public class ManisDbRpcServer implements ManisDbProtocols {
 
         ClientManisdbProtocolServerSideTranslatorPB
                 clientProtocolServerTranslator = new ClientManisdbProtocolServerSideTranslatorPB(this);
+        BlockingService clientMdPbService =
+                ClientManisDbProtocol.newReflectiveBlockingService(clientProtocolServerTranslator);
 
     }
 
