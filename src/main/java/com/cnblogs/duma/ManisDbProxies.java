@@ -9,7 +9,7 @@ import com.cnblogs.duma.protocol.ManagerManisDbProtocolSerializable;
 import com.cnblogs.duma.protocol.ManagerProtocol;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolPB;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolTranslatorPB;
-import com.cnblogs.duma.server.ManisDb;
+import com.cnblogs.duma.server.manisdb.ManisDb;
 
 import javax.net.SocketFactory;
 import java.io.IOException;

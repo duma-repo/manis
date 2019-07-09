@@ -1,4 +1,4 @@
-package com.cnblogs.duma.server;
+package com.cnblogs.duma.server.manisdb;
 
 import com.cnblogs.duma.conf.Configuration;
 
