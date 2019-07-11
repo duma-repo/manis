@@ -131,9 +131,49 @@ public class RPC {
      * 该类用于构造 RPC Server
      */
     public static class Builder {
+        private Class<?> protocol;
+        private Object instance;
+        private String bindAdress = "0.0.0.0";
+        private int bindPort = 0;
+        private int numHandlers = 1;
+        private boolean verbose = false;
         private Configuration conf;
 
         public Builder(Configuration conf) {
+            this.conf = conf;
+        }
+
+        public Builder setProtocol(Class<?> protocol) {
+            this.protocol = protocol;
+            return this;
+        }
+
+        public Builder setInstance(Object instance) {
+            this.instance = instance;
+            return this;
+        }
+
+        public Builder setBindAdress(String bindAdress) {
+            this.bindAdress = bindAdress;
+            return this;
+        }
+
+        public Builder setBindPort(int bindPort) {
+            this.bindPort = bindPort;
+            return this;
+        }
+
+        public Builder setNumHandlers(int numHandlers) {
+            this.numHandlers = numHandlers;
+            return this;
+        }
+
+        public Builder setVerbose(boolean verbose) {
+            this.verbose = verbose;
+            return this;
+        }
+
+        public void setConf(Configuration conf) {
             this.conf = conf;
         }
     }

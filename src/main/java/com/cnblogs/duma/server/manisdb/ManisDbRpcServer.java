@@ -26,6 +26,8 @@ public class ManisDbRpcServer implements ManisDbProtocols {
                 clientProtocolServerTranslator = new ClientManisdbProtocolServerSideTranslatorPB(this);
         BlockingService clientMdPbService =
                 ClientManisDbProtocol.newReflectiveBlockingService(clientProtocolServerTranslator);
+        new RPC.Builder(conf)
+                .setProtocol(ClientManisDbProtocolPB.class);
 
     }
 
