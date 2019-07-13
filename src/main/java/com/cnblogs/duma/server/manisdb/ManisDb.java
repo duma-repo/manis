@@ -1,6 +1,9 @@
 package com.cnblogs.duma.server.manisdb;
 
+import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -9,9 +12,10 @@ import java.net.URI;
  * @author duma
  */
 public class ManisDb {
-
+    public static final Log LOG = LogFactory.getLog(ManisDb.class.getName());
     private static final String MANIS_URI_SCHEMA = "manis";
     private static final int DEFAULT_PORT = 8866;
+    private static final String DEFAULT_FS = "uri://";
 
     private ManisDbRpcServer rpcServer;
 
@@ -33,6 +37,20 @@ public class ManisDb {
         }
 
         return getAddress(host);
+    }
+
+    private static URI getDefaultUri(Configuration conf, String key) {
+        return URI.create(conf.get(key, DEFAULT_FS));
+    }
+
+    protected static InetSocketAddress getProtoBufRpcServerAddress(Configuration conf) {
+        URI uri = getDefaultUri(conf, CommonConfigurationKeysPublic.MANIS_RPC_PROTOBUF_KEY);
+        return getAddress(uri);
+    }
+
+    protected static InetSocketAddress getSerializableRpcServerAddress(Configuration conf) {
+        URI uri = getDefaultUri(conf, CommonConfigurationKeysPublic.MANIS_RPC_SERIALIZABLE_KEY);
+        return getAddress(uri);
     }
 
     public ManisDb(Configuration conf) {

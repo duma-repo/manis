@@ -228,4 +228,13 @@ public class ProtobufRpcEngine implements RpcEngine {
             return RpcRequestHeaderProto.parseFrom(bytes);
         }
     }
+
+    @Override
+    public RPC.Server getServer(Class<?> protocol, Object instance,
+                                String bindAddress, int port,
+                                int numHandlers, int numReaders,
+                                int queueSizePerHandler, boolean verbose,
+                                Configuration conf) throws IOException {
+        return null;
+    }
 }

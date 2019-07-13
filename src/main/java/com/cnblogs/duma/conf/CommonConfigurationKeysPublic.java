@@ -34,4 +34,15 @@ public class CommonConfigurationKeysPublic {
 
     /** IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_KEY 的默认值，45次 */
     public static final int  IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_DEFAULT = 45;
+
+    /** Protobuf RPC Server的uri */
+    public static final String  MANIS_RPC_PROTOBUF_KEY = "manis.rpc.uri.protobuf";
+
+    /** serializable RPC Server的uri */
+    public static final String  MANIS_RPC_SERIALIZABLE_KEY = "manis.rpc.uri.serializable";
+
+    /** Manis rpc 服务端 handler 线程个数 */
+    public static final String  MANIS_HANDLER_COUNT_KEY = "dfs.namenode.handler.count";
+    /** MANIS_HANDLER_COUNT_KEY 的默认值，10 */
+    public static final int     MANIS_HANDLER_COUNT_DEFAULT = 10;
 }

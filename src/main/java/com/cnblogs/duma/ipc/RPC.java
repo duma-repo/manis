@@ -136,7 +136,9 @@ public class RPC {
         private String bindAdress = "0.0.0.0";
         private int bindPort = 0;
         private int numHandlers = 1;
+        private int numReaders = -1;
         private boolean verbose = false;
+        private int queueSizePerHandler = -1;
         private Configuration conf;
 
         public Builder(Configuration conf) {
@@ -176,5 +178,35 @@ public class RPC {
         public void setConf(Configuration conf) {
             this.conf = conf;
         }
+
+        /**
+         * 创建 RPC.Server 实例
+         * @return RPC.Server
+         * @throws IOException 发生错误
+         * @throws IllegalArgumentException 没有设置必要的参数时
+         */
+        public Server build() throws IOException, IllegalArgumentException {
+            if (this.conf == null) {
+                throw new IllegalArgumentException("conf is not set");
+            }
+            if (this.protocol == null) {
+                throw new IllegalArgumentException("protocol is not set");
+            }
+            if (this.instance == null) {
+                throw new IllegalArgumentException("instance is not set");
+            }
+
+            return getProtocolEngine(this.protocol, this.conf).getServer(
+                    this.protocol, this.instance, this.bindAdress, this.bindPort,
+                    this.numHandlers, this.numReaders, this.queueSizePerHandler,
+                    this.verbose, this.conf);
+        }
+    }
+
+    /**
+     * RPC Server
+     */
+    public abstract static class Server extends com.cnblogs.duma.ipc.Server {
+
     }
 }
