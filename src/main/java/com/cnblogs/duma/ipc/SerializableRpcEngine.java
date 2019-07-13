@@ -127,4 +127,13 @@ public class SerializableRpcEngine implements RpcEngine {
         final Invoker invoker = new Invoker(protocol, address, conf, factory, rpcTimeOut);
         return (T) Proxy.newProxyInstance(protocol.getClassLoader(), new Class[]{protocol}, invoker);
     }
+
+    @Override
+    public RPC.Server getServer(Class<?> protocol, Object instance,
+                                String bindAddress, int port,
+                                int numHandlers, int numReaders, int queueSizePerHandler,
+                                boolean verbose, Configuration conf
+                                ) throws IOException {
+        return null;
+    }
 }

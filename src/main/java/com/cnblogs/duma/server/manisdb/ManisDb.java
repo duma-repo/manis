@@ -5,6 +5,7 @@ import com.cnblogs.duma.conf.Configuration;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 
@@ -53,23 +54,23 @@ public class ManisDb {
         return getAddress(uri);
     }
 
-    public ManisDb(Configuration conf) {
+    public ManisDb(Configuration conf) throws IOException {
         init(conf);
     }
 
     /**
      * 初始化 ManisDb
      */
-    void init(Configuration conf) {
+    void init(Configuration conf) throws IOException {
         rpcServer = createRpcServer(conf);
         //todo start service
     }
 
-    ManisDbRpcServer createRpcServer(Configuration conf) {
+    ManisDbRpcServer createRpcServer(Configuration conf) throws IOException {
         return new ManisDbRpcServer(conf);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         Configuration conf = new Configuration();
 
         ManisDb manisDb = new ManisDb(conf);

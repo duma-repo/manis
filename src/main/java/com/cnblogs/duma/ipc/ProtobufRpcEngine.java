@@ -19,6 +19,9 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 
+/**
+ * @author duma
+ */
 public class ProtobufRpcEngine implements RpcEngine {
     public static  final Log LOG = LogFactory.getLog(ProtobufRpcEngine.class);
 
@@ -235,6 +238,31 @@ public class ProtobufRpcEngine implements RpcEngine {
                                 int numHandlers, int numReaders,
                                 int queueSizePerHandler, boolean verbose,
                                 Configuration conf) throws IOException {
-        return null;
+        return new Server(protocol, instance, bindAddress, port,
+                numHandlers, numReaders, queueSizePerHandler, verbose, conf);
+    }
+
+    private static class Server extends RPC.Server {
+        /**
+         * 构造 protocol buffer rpc server
+         * @param protocol 协议/接口
+         * @param protocolImpl 实现协议方法的实例
+         * @param bindAddress 服务端地址
+         * @param port 服务端端口
+         * @param numHandlers handler 线程个数
+         * @param numReaders reader 线程个数
+         * @param queueSizePerHandler 每一个 handler 线程队列大小
+         * @param verbose 是否对调用信息打log
+         * @param conf configuration
+         */
+        public Server(Class<?> protocol, Object protocolImpl,
+                      String bindAddress, int port,
+                      int numHandlers, int numReaders,
+                      int queueSizePerHandler, boolean verbose,
+                      Configuration conf) {
+            super(protocol, bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
+            this.verbose = verbose;
+            registerProtocolAndImpl(RPC.RpcKind.RPC_PROTOCOL_BUFFER, protocol, protocolImpl);
+        }
     }
 }

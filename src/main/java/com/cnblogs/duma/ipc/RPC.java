@@ -9,6 +9,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,6 +26,7 @@ public class RPC {
         RPC_SERIALIZABLE ((short) 1),
         RPC_PROTOCOL_BUFFER ((short) 2);
 
+        final static int MAX_INDEX = RPC_PROTOCOL_BUFFER.value;
         public final short value;
 
 
@@ -207,6 +209,97 @@ public class RPC {
      * RPC Server
      */
     public abstract static class Server extends com.cnblogs.duma.ipc.Server {
+        boolean verbose;
 
+        protected Server(Class<?> protocol, String bindAddress, int port,
+                         int numHandlers, int numReaders, int queueSizePerHandler,
+                         Configuration conf) {
+            super(protocol, bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
+        }
+
+        /**
+         * 存储协议（接口）的名称和版本，用来当做 map 的 key
+         */
+        static class ProtoNameVer {
+            final String protoName;
+            final long version;
+
+            ProtoNameVer(String protoName, long version) {
+                this.protoName = protoName;
+                this.version = version;
+            }
+
+            @Override
+            public boolean equals(Object obj) {
+                if (obj == null) {
+                    return false;
+                }
+                if (this == obj) {
+                    return true;
+                }
+                if (! (obj instanceof ProtoNameVer)) {
+                    return false;
+                }
+                ProtoNameVer pv = (ProtoNameVer) obj;
+                return (this.protoName.equals(pv.protoName)) &&
+                        (this.version == pv.version);
+            }
+
+            @Override
+            public int hashCode() {
+                return protoName.hashCode() * 37 + (int) version;
+            }
+        }
+
+        /**
+         * 存储协议（接口）的 class 及其实现实例
+         */
+        static class ProtoClassProtoImpl {
+            Class<?> protocolClass;
+            Object protocolImpl;
+
+            ProtoClassProtoImpl(Class<?> protocolClass, Object protocolImpl) {
+                this.protocolClass = protocolClass;
+                this.protocolImpl = protocolImpl;
+            }
+        }
+
+        /** 存储 server 不同序列化方式对应的协议 map */
+        ArrayList<Map<ProtoNameVer, ProtoClassProtoImpl>> protocolImplMapArray =
+                new ArrayList<>(RpcKind.MAX_INDEX);
+
+        Map<ProtoNameVer, ProtoClassProtoImpl> getProtocolImplMap(RpcKind rpcKind) {
+            if (protocolImplMapArray.size() == 0) {
+                for (int i = 0; i < RpcKind.MAX_INDEX; i++) {
+                    protocolImplMapArray.add(new HashMap<ProtoNameVer, ProtoClassProtoImpl>(10));
+                }
+            }
+
+            return protocolImplMapArray.get(rpcKind.ordinal());
+        }
+
+        /**
+         * 注册 protocol 及其实现实例
+         * @param rpcKind rpc类型
+         * @param protocolClass 协议
+         * @param protocolImpl 实现协议方法的实例
+         */
+        void registerProtocolAndImpl(RpcKind rpcKind, Class<?> protocolClass, Object protocolImpl) {
+            String protocolName = RPC.getProtocolName(protocolClass);
+
+            long version;
+            try {
+                version = RPC.getProtocolVersion(protocolClass);
+            } catch (Exception e) {
+                LOG.warn("Protocol "  + protocolClass +
+                        " NOT registered as cannot get protocol version ");
+                return;
+            }
+            getProtocolImplMap(rpcKind).put(new ProtoNameVer(protocolName, version),
+                    new ProtoClassProtoImpl(protocolClass, protocolImpl));
+            LOG.debug("RpcKind = " + rpcKind + " Protocol Name = " + protocolName +  " version=" + version +
+                    " ProtocolImpl=" + protocolImpl.getClass().getName() +
+                    " protocolClass=" + protocolClass.getName());
+        }
     }
 }
