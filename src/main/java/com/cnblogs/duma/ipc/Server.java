@@ -13,6 +13,8 @@ import java.net.SocketException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -85,6 +87,14 @@ public abstract class Server {
     }
 
     /**
+     * 启动服务
+     * todo synchronized 必须加的吗
+     */
+    public synchronized void start() {
+        listener.start();
+    }
+
+    /**
      * 封装 socket 与 address 绑定的代码，为了在这层做异常的处理
      * @param socket 服务端 socket
      * @param address 需要绑定的地址
@@ -108,6 +118,7 @@ public abstract class Server {
         private ServerSocketChannel acceptChannel;
         private Selector selector;
         private Reader[] readers;
+        private int currentReader = 0;
         private InetSocketAddress address;
         private int backlogLength = conf.getInt(
                 CommonConfigurationKeysPublic.IPC_SERVER_LISTEN_QUEUE_SIZE_KEY,
@@ -144,12 +155,70 @@ public abstract class Server {
                 super(name);
             }
         }
+
+        @Override
+        public void run() {
+            LOG.info("Listener thread " + Thread.currentThread().getName() + ": starting");
+            //todo connection manager
+            while (running) {
+                SelectionKey key = null;
+                try {
+                    selector.select();
+                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                    while (iterator.hasNext()) {
+                        key = iterator.next();
+                        iterator.remove();
+                        if (key.isValid()) {
+                            if (key.isAcceptable()) {
+                                doAccept(key);
+                            }
+                        }
+                        key = null;
+                    }
+                } catch (Exception e) {
+                    closeCurrentConnection(key);
+                }
+            }
+            // 需要停止，退出循环
+            LOG.info("Stopping " + Thread.currentThread().getName());
+            //todo stop
+        }
+
+        // todo close
+        private void closeCurrentConnection(SelectionKey key) {
+
+        }
+
+        void doAccept(SelectionKey key) throws IOException {
+            ServerSocketChannel server = (ServerSocketChannel) key.channel();
+            SocketChannel channel;
+            while ((channel = server.accept()) != null) {
+                channel.configureBlocking(false);
+                channel.socket().setTcpNoDelay(tcpNoDelay);
+                channel.socket().setKeepAlive(true);
+
+                Connection c = null; //todo init Connection
+                key.attach(c);
+
+                Reader reader = getReader();
+//                reader.addConnection(); //todo add connection
+            }
+        }
+
+        Reader getReader() {
+            currentReader = (currentReader + 1) % readers.length;
+            return readers[currentReader];
+        }
     }
 
     /**
      * 向客户端发送响应结果
      */
     private class Responder extends Thread {
+
+    }
+
+    public class Connection {
 
     }
 }
