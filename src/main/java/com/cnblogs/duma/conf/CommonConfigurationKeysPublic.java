@@ -66,6 +66,12 @@ public class CommonConfigurationKeysPublic {
     public static final int IPC_SERVER_RPC_READ_CONNECTION_QUEUE_SIZE_DEFAULT =
             100;
 
+    /** 服务端 accept 客户端连接，监听队列的长度 */
+    public static final String  IPC_SERVER_LISTEN_QUEUE_SIZE_KEY =
+            "ipc.server.listen.queue.size";
+    /** IPC_SERVER_LISTEN_QUEUE_SIZE_KEY，默认值 128 */
+    public static final int     IPC_SERVER_LISTEN_QUEUE_SIZE_DEFAULT = 128;
+
     /** Protobuf RPC Server的uri */
     public static final String  MANIS_RPC_PROTOBUF_KEY = "manis.rpc.uri.protobuf";
 
