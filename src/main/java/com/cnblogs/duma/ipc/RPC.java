@@ -211,10 +211,10 @@ public class RPC {
     public abstract static class Server extends com.cnblogs.duma.ipc.Server {
         boolean verbose;
 
-        protected Server(Class<?> protocol, String bindAddress, int port,
+        protected Server(String bindAddress, int port,
                          int numHandlers, int numReaders, int queueSizePerHandler,
                          Configuration conf) {
-            super(protocol, bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
+            super(bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
         }
 
         /**

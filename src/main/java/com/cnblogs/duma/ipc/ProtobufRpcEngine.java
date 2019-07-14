@@ -260,7 +260,7 @@ public class ProtobufRpcEngine implements RpcEngine {
                       int numHandlers, int numReaders,
                       int queueSizePerHandler, boolean verbose,
                       Configuration conf) {
-            super(protocol, bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
+            super(bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
             this.verbose = verbose;
             registerProtocolAndImpl(RPC.RpcKind.RPC_PROTOCOL_BUFFER, protocol, protocolImpl);
         }
