@@ -213,7 +213,7 @@ public class RPC {
 
         protected Server(String bindAddress, int port,
                          int numHandlers, int numReaders, int queueSizePerHandler,
-                         Configuration conf) {
+                         Configuration conf) throws IOException {
             super(bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
         }
 

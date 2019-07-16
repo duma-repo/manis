@@ -52,6 +52,20 @@ public class ManisDbRpcServer implements ManisDbProtocols {
                 .build();
     }
 
+    /**
+     * 启动 RPC 服务端
+     */
+    void start() {
+        protoBufRpcServer.start();
+    }
+
+    /**
+     * 等待 RPC 服务停止
+     */
+    void join() throws InterruptedException {
+        protoBufRpcServer.join();
+    }
+
     @Override
     public int getTableCount(String dbName, String tbName) throws IOException {
         return 0;

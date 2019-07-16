@@ -63,7 +63,19 @@ public class ManisDb {
      */
     void init(Configuration conf) throws IOException {
         rpcServer = createRpcServer(conf);
-        //todo start service
+        startServices();
+    }
+
+    private void startServices() {
+        rpcServer.start();
+    }
+
+    public void join() {
+        try {
+            rpcServer.join();
+        } catch (InterruptedException ie) {
+            LOG.info("Caught interrupted exception ", ie);
+        }
     }
 
     ManisDbRpcServer createRpcServer(Configuration conf) throws IOException {
@@ -74,7 +86,6 @@ public class ManisDb {
         Configuration conf = new Configuration();
 
         ManisDb manisDb = new ManisDb(conf);
-        //todo join
-
+        manisDb.join();
     }
 }

@@ -95,6 +95,16 @@ public abstract class Server {
     }
 
     /**
+     * 等待服务端停止
+     * @throws InterruptedException
+     */
+    public synchronized void join() throws InterruptedException {
+        while (running) {
+            wait();
+        }
+    }
+
+    /**
      * 封装 socket 与 address 绑定的代码，为了在这层做异常的处理
      * @param socket 服务端 socket
      * @param address 需要绑定的地址
