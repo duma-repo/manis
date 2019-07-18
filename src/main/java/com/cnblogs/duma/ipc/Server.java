@@ -16,6 +16,8 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 /**
  * @author duma
@@ -37,6 +39,7 @@ public abstract class Server {
     volatile private boolean running = true; // todo 为什么volatile
 //    private CallQueueManager<Call> callQueue;
 
+    private ConnectionManager connectionManager;
     private Listener listener;
     private Responder responder;
 
@@ -77,6 +80,7 @@ public abstract class Server {
 
         // 创建 listener
         this.listener = new Listener();
+        this.connectionManager = new ConnectionManager();
         // todo 连接相关的对象
         this.tcpNoDelay = conf.getBoolean(
                 CommonConfigurationKeysPublic.IPC_CLIENT_TCPNODELAY_KEY,
@@ -169,7 +173,7 @@ public abstract class Server {
         @Override
         public void run() {
             LOG.info("Listener thread " + Thread.currentThread().getName() + ": starting");
-            //todo connection manager
+            connectionManager.startIdleScan();
             while (running) {
                 SelectionKey key = null;
                 try {
@@ -180,6 +184,7 @@ public abstract class Server {
                         iterator.remove();
                         if (key.isValid()) {
                             if (key.isAcceptable()) {
+                                System.out.println("client accept");
                                 doAccept(key);
                             }
                         }
@@ -230,5 +235,64 @@ public abstract class Server {
 
     public class Connection {
 
+    }
+
+    private class ConnectionManager {
+
+        final private Timer idleScanTimer;
+        final private int idleScanThreshold;
+        final private int idleScanInterval;
+        final private int maxIdleTime;
+        final private int maxIdleToClose;
+
+        ConnectionManager() {
+            this.idleScanTimer = new Timer(
+                    "IPC Server idle connection scanner for port " + port, true);
+            this.idleScanThreshold = conf.getInt(
+                    CommonConfigurationKeysPublic.IPC_CLIENT_IDLETHRESHOLD_KEY,
+                    CommonConfigurationKeysPublic.IPC_CLIENT_IDLETHRESHOLD_DEFAULT);
+            this.idleScanInterval = conf.getInt(
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_IDLESCANINTERVAL_KEY,
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_IDLESCANINTERVAL_DEFAULT);
+            this.maxIdleTime = conf.getInt(
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_MAXIDLETIME_KEY,
+                    CommonConfigurationKeysPublic.IPC_CLIENT_CONNECTION_MAXIDLETIME_DEFAULT);
+            this.maxIdleToClose = conf.getInt(
+                    CommonConfigurationKeysPublic.IPC_CLIENT_KILL_MAX_KEY,
+                    CommonConfigurationKeysPublic.IPC_CLIENT_KILL_MAX_DEFAULT);
+        }
+
+        synchronized void closeIdle(boolean scanAll) {
+            //todo add close code
+        }
+
+        void startIdleScan() {
+            scheduleIdleScanTask();
+        }
+
+        private void scheduleIdleScanTask() {
+            if (!running) {
+                return;
+            }
+            TimerTask idleCloseTask = new TimerTask() {
+                @Override
+                public void run() {
+                    if(!running) {
+                        return;
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(Thread.currentThread().getName()+": task running");
+                    }
+
+                    try {
+                        closeIdle(false);
+                    } finally {
+                        // 定时器只调度一次，所以本次任务执行完后手动再次添加到定时器中
+                        scheduleIdleScanTask();
+                    }
+                }
+            };
+            idleScanTimer.schedule(idleCloseTask, idleScanInterval);
+        }
     }
 }

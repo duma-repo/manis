@@ -5,6 +5,7 @@ package com.cnblogs.duma.conf;
  * @author duma
  */
 public class CommonConfigurationKeysPublic {
+    /** 连接最大的空闲时间 */
     public static final String  IPC_CLIENT_CONNECTION_MAXIDLETIME_KEY =
             "ipc.client.connection.maxidletime";
     /** IPC_CLIENT_CONNECTION_MAXIDLETIME_KEY 的默认值，10s */
@@ -71,6 +72,24 @@ public class CommonConfigurationKeysPublic {
             "ipc.server.listen.queue.size";
     /** IPC_SERVER_LISTEN_QUEUE_SIZE_KEY，默认值 128 */
     public static final int     IPC_SERVER_LISTEN_QUEUE_SIZE_DEFAULT = 128;
+
+    /** 空闲连接的阈值，如果大于该阈值则关闭空闲连接 */
+    public static final String  IPC_CLIENT_IDLETHRESHOLD_KEY =
+            "ipc.client.idlethreshold";
+    /** IPC_CLIENT_IDLETHRESHOLD_KEY 的默认值，200 */
+    public static final int     IPC_CLIENT_IDLETHRESHOLD_DEFAULT = 200;
+
+    /** 服务端扫描空闲连接的时间间隔 */
+    public static final String IPC_CLIENT_CONNECTION_IDLESCANINTERVAL_KEY =
+            "ipc.client.connection.idle-scan-interval.ms";
+    /** IPC_SERVER_CONNECTION_IDLE_SCAN_INTERVAL_KEY 的默认值，10s */
+    public static final int IPC_CLIENT_CONNECTION_IDLESCANINTERVAL_DEFAULT =
+            10000;
+
+    /** 关闭空闲连接的最大值 */
+    public static final String  IPC_CLIENT_KILL_MAX_KEY = "ipc.client.kill.max";
+    /** IPC_CLIENT_KILL_MAX_KEY 的默认值，10 */
+    public static final int     IPC_CLIENT_KILL_MAX_DEFAULT = 10;
 
     /** Protobuf RPC Server的uri */
     public static final String  MANIS_RPC_PROTOBUF_KEY = "manis.rpc.uri.protobuf";
