@@ -6,18 +6,17 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.SocketException;
+import java.net.*;
+import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author duma
@@ -37,7 +36,7 @@ public abstract class Server {
 
 
     volatile private boolean running = true; // todo 为什么volatile
-//    private CallQueueManager<Call> callQueue;
+    private CallQueueManager<Call> callQueue;
 
     private ConnectionManager connectionManager;
     private Listener listener;
@@ -108,6 +107,9 @@ public abstract class Server {
         }
     }
 
+    private void closeConnection(Connection conn) {
+        connectionManager.close(conn);
+    }
     /**
      * 封装 socket 与 address 绑定的代码，为了在这层做异常的处理
      * @param socket 服务端 socket
@@ -123,6 +125,10 @@ public abstract class Server {
                     + se
                     + "; bind address: " + address, se);
         }
+    }
+
+    public static class Call {
+
     }
 
     /**
@@ -165,8 +171,25 @@ public abstract class Server {
         }
 
         private class Reader extends Thread {
-            Reader(String name) {
+            private final BlockingQueue<Connection> penddingConnections;
+            private final Selector readSelector;
+
+            Reader(String name) throws IOException {
                 super(name);
+                this.penddingConnections =
+                        new LinkedBlockingDeque<>(readerPendingConnectionQueue);
+                readSelector = Selector.open();
+            }
+
+            /**
+             * 生产者将 connection 入队列
+             * 唤醒 readSelector，执行下一次读操作之前会为新的 connection 注册读事件
+             * @param conn 新的 Connection 对象
+             * @throws InterruptedException
+             */
+            void addConnection(Connection conn) throws InterruptedException {
+                penddingConnections.put(conn);
+                readSelector.wakeup();
             }
         }
 
@@ -190,21 +213,45 @@ public abstract class Server {
                         }
                         key = null;
                     }
+                } catch (OutOfMemoryError oom) {
+                    // out of memory 时，需要关闭所有连接
+                    // todo 休眠一段时间等其他线程处理后事
+                    LOG.warn("Out of Memory in server select", oom);
+                    closeCurrentConnection(key);
+                    connectionManager.closeIdle(true);
+                    try { Thread.sleep(60000); } catch (InterruptedException e) {}
                 } catch (Exception e) {
                     closeCurrentConnection(key);
                 }
             }
             // 需要停止，退出循环
             LOG.info("Stopping " + Thread.currentThread().getName());
-            //todo stop
+
+            try {
+                acceptChannel.close();
+                selector.close();
+            } catch (IOException e) {
+                LOG.warn("Ignoring listener close exception", e);
+            }
+
+            acceptChannel = null;
+            selector = null;
+
+            connectionManager.stopIdleScan();
+            connectionManager.closeAll();
         }
 
-        // todo close
         private void closeCurrentConnection(SelectionKey key) {
-
+            if (key != null) {
+                Connection conn = (Connection) key.attachment();
+                if (conn != null) {
+                    closeConnection(conn);
+                    conn = null;
+                }
+            }
         }
 
-        void doAccept(SelectionKey key) throws IOException {
+        void doAccept(SelectionKey key) throws IOException, InterruptedException {
             ServerSocketChannel server = (ServerSocketChannel) key.channel();
             SocketChannel channel;
             while ((channel = server.accept()) != null) {
@@ -212,11 +259,12 @@ public abstract class Server {
                 channel.socket().setTcpNoDelay(tcpNoDelay);
                 channel.socket().setKeepAlive(true);
 
-                Connection c = null; //todo init Connection
-                key.attach(c);
+                Connection conn = connectionManager.register(channel);
+                // 关闭当前连接时可以去到 Connection 对象
+                key.attach(conn);
 
                 Reader reader = getReader();
-//                reader.addConnection(); //todo add connection
+                reader.addConnection(conn);
             }
         }
 
@@ -233,11 +281,58 @@ public abstract class Server {
 
     }
 
-    public class Connection {
+    private class Connection {
+        private SocketChannel channel;
+        private volatile long lastContact;
 
+        private ByteBuffer data;
+        private ByteBuffer dataLengthBuffer;
+        private Socket socket;
+
+        private volatile int rpcCount;
+
+        Connection(SocketChannel channel, long lastContact) {
+            this.channel = channel;
+            this.lastContact = lastContact;
+            this.socket = channel.socket();
+        }
+
+        private boolean isIdle() {
+            return rpcCount == 0;
+        }
+
+        private long getLastContact() {
+            return lastContact;
+        }
+
+        // 可能多个线程都有可能调用该方法
+        private synchronized void close() {
+            data = null;
+            dataLengthBuffer = null;
+            if (!channel.isOpen()) {
+                return;
+            }
+            try {
+                socket.shutdownOutput();
+            } catch (IOException e) {
+                LOG.warn("Ignoring socket shutdown exception", e);
+            }
+            try {
+                channel.close();
+            } catch (IOException e) {
+                LOG.warn("Ignoring channel close exception", e);
+            }
+            try {
+                socket.close();
+            } catch (IOException e) {
+                LOG.warn("Ignoring socket close exception", e);
+            }
+        }
     }
 
     private class ConnectionManager {
+        private final AtomicInteger count = new AtomicInteger();
+        private Set<Connection> connections;
 
         final private Timer idleScanTimer;
         final private int idleScanThreshold;
@@ -260,14 +355,98 @@ public abstract class Server {
             this.maxIdleToClose = conf.getInt(
                     CommonConfigurationKeysPublic.IPC_CLIENT_KILL_MAX_KEY,
                     CommonConfigurationKeysPublic.IPC_CLIENT_KILL_MAX_DEFAULT);
+            this.connections = Collections.newSetFromMap(
+                    new ConcurrentHashMap<Connection, Boolean>(maxQueueSize));
         }
 
+        private boolean add(Connection connection) {
+            boolean added = connections.add(connection);
+            if (added) {
+                count.getAndIncrement();
+            }
+            return added;
+        }
+
+        private boolean remove(Connection connection) {
+            boolean removed = connections.remove(connection);
+            if (removed) {
+                count.getAndDecrement();
+            }
+            return removed;
+        }
+
+        int size() {
+            return count.get();
+        }
+
+        Connection register(SocketChannel channel) {
+            Connection connection = new Connection(channel, System.currentTimeMillis());
+            add(connection);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Server connection from " + connection +
+                        "; # active connections: " + size() +
+                        "; # queued calls: " + callQueue.size());
+            }
+            return connection;
+        }
+
+        /**
+         * todo 如果关闭的时候，正好有线程在读，但还没有更新 lastContact 怎么办
+         * @param connection
+         * @return
+         */
+        private boolean close(Connection connection) {
+            boolean exists = remove(connection);
+            if (exists) {
+                LOG.debug(Thread.currentThread().getName() +
+                        ": disconnecting client " + connection +
+                        ". Number of active connections: "+ size());
+                connection.close();
+            }
+            return exists;
+        }
+
+        private void closeAll() {
+            for (Connection connection : connections) {
+                close(connection);
+            }
+        }
+
+        /**
+         * 当发生 OOM 时 listener 线程也会调用该方法，为了避免与定时器线程冲突
+         * 需要加 synchronized
+         * @param scanAll 是否扫描所有的 connection
+         */
         synchronized void closeIdle(boolean scanAll) {
-            //todo add close code
+            long minLastContact = System.currentTimeMillis() - maxIdleTime;
+
+            // 并发的 iterator 在迭代的过程中有可能遍历不到新插入的 Connection 对象
+            // 但是没有关系，因为新的 Connection 不会是空闲的
+            int closed = 0;
+            for (Connection connection : connections) {
+                // 不需要扫全部的情况下，如果没有达到扫描空闲 connection 的阈值
+                // 或者下面代码关闭连接导致剩余连接小于 idleScanThreshold 时，便退出循环
+                if (!scanAll && size() < idleScanThreshold) {
+                    break;
+                }
+
+                // 关闭空闲的连接，由于 java && 的短路运算，
+                // 如果 scanAll == true，只关闭 maxIdleToClose 个连接，否则全关闭
+                if (connection.isIdle() &&
+                    connection.getLastContact() < minLastContact &&
+                    close(connection) &&
+                    !scanAll && (++closed == maxIdleToClose)) {
+                    break;
+                }
+            }
         }
 
         void startIdleScan() {
             scheduleIdleScanTask();
+        }
+
+        void stopIdleScan() {
+            idleScanTimer.cancel();
         }
 
         private void scheduleIdleScanTask() {
