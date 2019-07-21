@@ -35,6 +35,10 @@ public class RPC {
         }
     }
 
+    interface RpcInvoker {
+
+    }
+
     /**
      * 接口与RPC引擎对应关系的缓存
      */

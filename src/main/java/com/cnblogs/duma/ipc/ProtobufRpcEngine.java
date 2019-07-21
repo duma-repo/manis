@@ -25,6 +25,13 @@ import java.net.InetSocketAddress;
 public class ProtobufRpcEngine implements RpcEngine {
     public static  final Log LOG = LogFactory.getLog(ProtobufRpcEngine.class);
 
+    static {
+        com.cnblogs.duma.ipc.Server.registerProtocolEngine(
+                RPC.RpcKind.RPC_PROTOCOL_BUFFER,
+                RpcRequestWrapper.class,
+                new Server.ProtobufRpcInvoker());
+    }
+
     @Override
     @SuppressWarnings("unchecked")
     public <T> T getProxy(Class<T> protocol,
@@ -263,6 +270,10 @@ public class ProtobufRpcEngine implements RpcEngine {
             super(bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
             this.verbose = verbose;
             registerProtocolAndImpl(RPC.RpcKind.RPC_PROTOCOL_BUFFER, protocol, protocolImpl);
+        }
+
+        static class ProtobufRpcInvoker implements RPC.RpcInvoker {
+
         }
     }
 }

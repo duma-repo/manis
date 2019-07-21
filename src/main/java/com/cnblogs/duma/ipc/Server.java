@@ -2,6 +2,7 @@ package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
@@ -27,6 +28,40 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author duma
  */
 public abstract class Server {
+
+    static class RpcKindMapValue {
+        final Class<? extends Writable> rpcRequestWrapperClass;
+        final RPC.RpcInvoker rpcInvoker;
+
+        RpcKindMapValue(Class<? extends Writable> rpcRequestWrapperClass,
+                        RPC.RpcInvoker rpcInvoker) {
+            this.rpcRequestWrapperClass = rpcRequestWrapperClass;
+            this.rpcInvoker = rpcInvoker;
+        }
+    }
+    static Map<RPC.RpcKind, RpcKindMapValue> rpcKindMap = new HashMap<>();
+
+    /**
+     * 在 rpcKind 上注册用来反序列化的类和进行rpc调用的对象
+     * @param rpcKind rpcKind
+     * @param rpcRequestWrapperClass 反序列化的类
+     * @param rpcInvoker 用来调用的对象
+     */
+    static void registerProtocolEngine(RPC.RpcKind rpcKind,
+                                       Class<? extends Writable> rpcRequestWrapperClass,
+                                       RPC.RpcInvoker rpcInvoker) {
+        RpcKindMapValue rpcKindMapValue =
+                new RpcKindMapValue(rpcRequestWrapperClass, rpcInvoker);
+        RpcKindMapValue old = rpcKindMap.put(rpcKind, rpcKindMapValue);
+        if (old != null) {
+            rpcKindMap.put(rpcKind, old);
+            throw new IllegalArgumentException("ReRegistration of rpcKind: " +  rpcKind);
+        }
+        LOG.debug("rpcKind=" + rpcKind +
+                ", rpcRequestWrapperClass=" + rpcRequestWrapperClass +
+                ", rpcInvoker=" + rpcInvoker);
+    }
+
     public static final Log LOG = LogFactory.getLog(Server.class);
     private String bindAddress;
     private int port;
