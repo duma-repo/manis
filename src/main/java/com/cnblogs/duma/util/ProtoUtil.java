@@ -75,6 +75,14 @@ public class ProtoUtil {
         }
     }
 
+    public static RPC.RpcKind converRpcKind(RpcKindProto rpcKind) {
+        switch (rpcKind) {
+            case RPC_SERIALIZABLE: return RPC.RpcKind.RPC_SERIALIZABLE;
+            case RPC_PROTOCOL_BUFFER: return RPC.RpcKind.RPC_PROTOCOL_BUFFER;
+            default: return null;
+        }
+    }
+
     public static RpcRequestHeaderProto makeRpcRequestHeader(RPC.RpcKind rpcKind,
             RpcRequestHeaderProto.OperationProto operation,
             int callId, int retryCount, byte[] clientId) {

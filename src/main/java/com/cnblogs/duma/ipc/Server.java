@@ -4,8 +4,10 @@ import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
+import com.cnblogs.duma.util.ProtoUtil;
 import com.google.protobuf.Message;
 import com.sun.org.apache.bcel.internal.generic.Select;
 import org.apache.commons.logging.Log;
@@ -15,6 +17,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
@@ -62,6 +65,12 @@ public abstract class Server {
                 ", rpcInvoker=" + rpcInvoker);
     }
 
+    Class<? extends Writable> getRpcRequestWrapper(
+            RpcHeaderProtos.RpcKindProto rpcKind) {
+        RpcKindMapValue val = rpcKindMap.get(ProtoUtil.converRpcKind(rpcKind));
+        return (val == null) ? null : val.rpcRequestWrapperClass;
+    }
+
     public static final Log LOG = LogFactory.getLog(Server.class);
     private String bindAddress;
     private int port;
@@ -76,7 +85,8 @@ public abstract class Server {
 
 
     volatile private boolean running = true; // todo 为什么volatile
-    private CallQueueManager<Call> callQueue;
+    /** 默认使用 LinkedBlockingQueue */
+    private BlockingQueue<Call> callQueue;
 
     private ConnectionManager connectionManager;
     private Listener listener;
@@ -115,7 +125,7 @@ public abstract class Server {
         this.readerPendingConnectionQueue = conf.getInt(
                 CommonConfigurationKeysPublic.IPC_SERVER_RPC_READ_CONNECTION_QUEUE_SIZE_KEY,
                 CommonConfigurationKeysPublic.IPC_SERVER_RPC_READ_CONNECTION_QUEUE_SIZE_DEFAULT);
-        //todo callQueue 初始化
+        this.callQueue = new LinkedBlockingDeque<>(maxQueueSize);
 
         // 创建 listener
         this.listener = new Listener();
@@ -586,6 +596,41 @@ public abstract class Server {
             }
         }
 
+        private void processRpcRequest(RpcRequestHeaderProto header,
+                                       DataInputStream dis)
+                throws WrappedRpcServerException, InterruptedException {
+            Class<? extends Writable> rpcRequestClass =
+                    getRpcRequestWrapper(header.getRpcKind());
+            if (rpcRequestClass == null) {
+                LOG.warn("Unknown RPC kind " + header.getRpcKind() +
+                        " from client " + hostAddress);
+                final String err = "Unknown rpc kind in rpc header " + header.getRpcKind();
+                throw new WrappedRpcServerException(
+                        RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER,
+                        err);
+            }
+            Writable rpcRequest;
+            try {
+                Constructor<? extends Writable> constructor =
+                        rpcRequestClass.getDeclaredConstructor();
+                constructor.setAccessible(true);
+                rpcRequest = constructor.newInstance();
+                rpcRequest.readFields(dis);
+            } catch (Exception e) {
+                LOG.warn("Unable to read call parameters for client " +
+                        hostAddress + "on connection protocol " +
+                        this.protocolName + " for rpcKind " + header.getRpcKind(),  e);
+                String err = "IPC server unable to read call parameters: "+ e.getMessage();
+                throw new WrappedRpcServerException(
+                        RpcErrorCodeProto.FATAL_DESERIALIZING_REQUEST, err);
+            }
+            //todo new call
+            Call call = new Call();
+            // 将 call 入队列，有可能在这里阻塞
+            callQueue.put(call);
+            incRpcCount();
+        }
+
         /**
          * 处理 out of band 数据
          * @param header RPC header
@@ -638,6 +683,10 @@ public abstract class Server {
 
         private boolean isIdle() {
             return rpcCount == 0;
+        }
+
+        private void incRpcCount() {
+            rpcCount++;
         }
 
         private void setLastContact(long lastContact) {
