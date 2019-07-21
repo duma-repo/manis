@@ -6,7 +6,7 @@ public class RpcConstants {
     /** RPC 连接发送 header 的头四个字节 */
     public static final ByteBuffer HEADER = ByteBuffer.wrap("mrpc".getBytes());
 
-    public static final byte CURRENT_VERSION = 9;
+    public static final byte CURRENT_VERSION = 1;
 
     public static final int INVALID_RETRY_COUNT = -1;
 }

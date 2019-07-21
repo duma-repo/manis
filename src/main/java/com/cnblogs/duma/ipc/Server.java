@@ -2,16 +2,14 @@ package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import com.sun.org.apache.bcel.internal.generic.Select;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -127,6 +125,33 @@ public abstract class Server {
         }
     }
 
+    /**
+     * 当读写 buffer 的大小超过 64KB 限制，读写操作的数据将按照该值分割。
+     * 大部分 RPC 不会拆过这个值
+     */
+    private static int NIO_BUFFER_LIMIT = 8*1024;
+
+    /**
+     * 该函数是 {@link ReadableByteChannel#read(ByteBuffer)} 的 wrapper
+     * 如果需要读数据量较大, it writes to channel in smaller chunks.
+     * This is to avoid jdk from creating many direct buffers as the size of
+     * ByteBuffer increases. There should not be any performance degredation.
+     *
+     * @see ReadableByteChannel#read(ByteBuffer)
+     */
+    private int channelRead(ReadableByteChannel channel,
+                            ByteBuffer buffer) throws IOException {
+        int count = (buffer.remaining() < NIO_BUFFER_LIMIT) ?
+                channel.read(buffer) : channelIO(channel, null, buffer);
+        return count;
+    }
+
+    private int channelIO(ReadableByteChannel readCh,
+                          WritableByteChannel writeCh,
+                          ByteBuffer buffer) {
+        return 0;
+    }
+
     public static class Call {
 
     }
@@ -179,6 +204,51 @@ public abstract class Server {
                 this.penddingConnections =
                         new LinkedBlockingDeque<>(readerPendingConnectionQueue);
                 readSelector = Selector.open();
+            }
+
+            @Override
+            public void run() {
+                LOG.info("Starting " + Thread.currentThread().getName());
+                try {
+                    doRunLoop();
+                } finally {
+                    try {
+                        readSelector.close();
+                    } catch (IOException ioe) {
+                        LOG.error("Error closing read selector in " + Thread.currentThread().getName(), ioe);
+                    }
+                }
+            }
+
+            void doRunLoop() {
+                while (running) {
+                    SelectionKey key = null;
+                    try {
+                        // 消费已进队列的 connection 的数量，防止队列为空是阻塞等待
+                        // 影响后续 select
+                        int size = penddingConnections.size();
+                        for (int i = 0; i < size; i++) {
+                            Connection conn = penddingConnections.take();
+                            conn.channel.register(readSelector, SelectionKey.OP_READ, conn);
+                        }
+                        readSelector.select();
+
+                        Iterator<SelectionKey> iter = readSelector.selectedKeys().iterator();
+                        while (iter.hasNext()) {
+                            key = iter.next();
+                            iter.remove();
+                            if (key.isValid() &&
+                                key.isReadable()) {
+                                doRead();
+                            }
+                            key = null;
+                        }
+                    } catch (InterruptedException e) {
+                        LOG.info(Thread.currentThread().getName() + " unexpectedly interrupted", e);
+                    } catch (IOException e) {
+                        LOG.error("Error in Reader", e);
+                    }
+                }
             }
 
             /**
@@ -268,6 +338,16 @@ public abstract class Server {
             }
         }
 
+        void doRead(SelectionKey key) {
+            int count = 0;
+            Connection conn = (Connection)key.attachment();
+            if(conn == null) {
+                return;
+            }
+            conn.setLastContact(System.currentTimeMillis());
+
+        }
+
         Reader getReader() {
             currentReader = (currentReader + 1) % readers.length;
             return readers[currentReader];
@@ -282,12 +362,22 @@ public abstract class Server {
     }
 
     private class Connection {
+        /** 连接头是否被读过 */
+        private boolean connectionHeaderRead = false;
+        /** 连接头后的连接上下文是否被读过 */
+        private boolean connectionContextRead = false;
+
         private SocketChannel channel;
         private volatile long lastContact;
 
         private ByteBuffer data;
         private ByteBuffer dataLengthBuffer;
         private Socket socket;
+        private ByteBuffer connectionHeaderBuf = null;
+        private InetAddress remoteAddr;
+        private String hostAddress;
+        private int remotePort;
+
 
         private volatile int rpcCount;
 
@@ -295,10 +385,105 @@ public abstract class Server {
             this.channel = channel;
             this.lastContact = lastContact;
             this.socket = channel.socket();
+            this.data = null;
+            this.dataLengthBuffer = ByteBuffer.allocate(4);
+            this.remoteAddr = socket.getInetAddress();
+            this.hostAddress = remoteAddr.getHostAddress();
+            this.remotePort = socket.getPort();
+        }
+
+        private void checkDataLength(int dataLength) throws IOException {
+            if (dataLength < 0) {
+                String errMsg = "Unexpected data length " + dataLength +
+                        "! from " + hostAddress;
+                LOG.warn(errMsg);
+                throw new IOException(errMsg);
+            }
+            if (dataLength > maxDataLength) {
+                String errMsg = "Requested data length " + dataLength +
+                        " is longer than maximum configured RPC length " +
+                        maxDataLength + ".  RPC came from " + hostAddress;
+                LOG.warn(errMsg);
+                throw new IOException(errMsg);
+            }
+        }
+
+        int readAndProcess() throws IOException {
+            while (true) {
+                // 至少读一次 RPC 的数据
+                // 一直迭代直到一次 RPC 的数据读完或者没有剩余的数据
+                int count = -1;
+                if (dataLengthBuffer.remaining() > 0) {
+                    count = channelRead(channel, dataLengthBuffer);
+                    if (count < 0 || dataLengthBuffer.remaining() > 0) {
+                        // 读取有问题或者未读完，直接返回
+                        return count;
+                    }
+                }
+                if (!connectionHeaderRead) {
+                    if (connectionHeaderBuf == null) {
+                        connectionHeaderBuf = ByteBuffer.allocate(3);
+                    }
+                    count = channelRead(channel, connectionHeaderBuf);
+                    if (count < 0 || connectionHeaderBuf.remaining() > 0) {
+                        return count;
+                    }
+                    int version = connectionHeaderBuf.get(0);
+                    int serviceClass = connectionHeaderBuf.get(1);
+
+                    dataLengthBuffer.flip();
+                    if (!RpcConstants.HEADER.equals(dataLengthBuffer) ||
+                        version != RpcConstants.CURRENT_VERSION) {
+                        LOG.warn("Incorrect header or version mismatch from " +
+                                hostAddress + ":" + remotePort +
+                                " got version " + version +
+                                " expected version " + RpcConstants.CURRENT_VERSION);
+                        //todo response bad version
+                        return -1;
+                    }
+
+                    dataLengthBuffer.clear();
+                    connectionHeaderBuf = null;
+                    connectionHeaderRead = true;
+                    continue;
+                }
+
+                // 可能存在分批读的情况，所以先判断之前是否读过
+                if (data == null) {
+                    dataLengthBuffer.flip();
+                    int dataLength = dataLengthBuffer.getInt();
+                    checkDataLength(dataLength);
+                    data = ByteBuffer.allocate(dataLength);
+                }
+
+                count = channelRead(channel, data);
+                if (data.remaining() == 0) {
+                    // 说明数据已经完全读入
+                    dataLengthBuffer.clear();
+                    data.flip();
+                    // processOneRpc 函数可能改变 connectionContextRead 值
+                    // 需要将当前值存储在临时变量中
+                    boolean isHeaderRead = connectionContextRead;
+                    processOneRpc(data.array());
+                    data=null;
+                    if (!isHeaderRead) {
+                        continue;
+                    }
+                }
+                return count;
+            }
+        }
+
+        private void processOneRpc(byte[] bytes) {
+
         }
 
         private boolean isIdle() {
             return rpcCount == 0;
+        }
+
+        private void setLastContact(long lastContact) {
+            this.lastContact = lastContact;
         }
 
         private long getLastContact() {
