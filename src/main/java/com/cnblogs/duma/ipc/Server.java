@@ -2,11 +2,18 @@ package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
+import com.google.protobuf.Message;
 import com.sun.org.apache.bcel.internal.generic.Select;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
@@ -239,7 +246,7 @@ public abstract class Server {
                             iter.remove();
                             if (key.isValid() &&
                                 key.isReadable()) {
-                                doRead();
+//                                doRead();
                             }
                             key = null;
                         }
@@ -361,6 +368,24 @@ public abstract class Server {
 
     }
 
+    private static class WrappedRpcServerException extends IOException {
+        private RpcErrorCodeProto errorCode;
+
+        public WrappedRpcServerException(RpcErrorCodeProto errorCode, String message) {
+            super(message, new IOException(message));
+            this.errorCode = errorCode;
+        }
+
+        public RpcErrorCodeProto getErrorCode() {
+            return errorCode;
+        }
+
+        @Override
+        public String toString() {
+            return getCause().toString();
+        }
+    }
+
     private class Connection {
         /** 连接头是否被读过 */
         private boolean connectionHeaderRead = false;
@@ -377,6 +402,9 @@ public abstract class Server {
         private InetAddress remoteAddr;
         private String hostAddress;
         private int remotePort;
+
+        IpcConnectionContextProto connectionContext;
+        String protocolName;
 
 
         private volatile int rpcCount;
@@ -474,8 +502,103 @@ public abstract class Server {
             }
         }
 
-        private void processOneRpc(byte[] bytes) {
+        /**
+         * 处理一次 RPC 请求
+         * @param buf RPC 请求的上下文或者调用请求
+         */
+        private void processOneRpc(byte[] buf) throws WrappedRpcServerException {
+            int callId = -1;
+            int retry = RpcConstants.INVALID_RETRY_COUNT;
 
+            try {
+                DataInputStream dis =
+                        new DataInputStream(new ByteArrayInputStream(buf));
+                RpcRequestHeaderProto header =
+                    decodeProtobufFromStream(RpcRequestHeaderProto.newBuilder(), dis);
+                callId = header.getCallId();
+                retry = header.getRetryCount();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get #" + callId);
+                }
+                checkRpcHeader(header);
+                if (callId < 0) {
+                    processOutOfBandRequest(header, dis);
+                } else if (!connectionContextRead) {
+                    throw new WrappedRpcServerException(
+                            RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER,
+                            "Connection context not found");
+                } else {
+                    // todo RPC 请求
+                }
+
+            } catch (WrappedRpcServerException wrse) {
+                Throwable ioe = wrse.getCause();
+                // todo 发送报错信息给客户端
+                throw wrse;
+            }
+        }
+
+        /**
+         * 验证 rpc header 是否正确
+         * @param header RPC request header
+         * @throws WrappedRpcServerException header 包含无效值
+         */
+        private void checkRpcHeader(RpcRequestHeaderProto header)
+                throws WrappedRpcServerException{
+            if (!header.hasRpcKind()) {
+                String errMsg = "IPC Server: No rpc kind in rpcRequestHeader";
+                throw new WrappedRpcServerException(RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER, errMsg);
+            }
+        }
+
+        /**
+         * 处理 out of band 数据
+         * @param header RPC header
+         * @param dis 请求的数据流
+         * @throws WrappedRpcServerException 状态错误
+         */
+        private void processOutOfBandRequest(RpcRequestHeaderProto header,
+                                             DataInputStream dis)
+                throws WrappedRpcServerException {
+            int callId = header.getCallId();
+            if (callId == RpcConstants.CONNECTION_CONTEXT_CALL_ID) {
+                processConnectionContext(dis);
+            } else {
+                throw new WrappedRpcServerException(
+                        RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER,
+                        "Unknown out of band call #" + callId);
+            }
+        }
+
+        /**
+         * 读取 connection context 信息
+         * @param dis 客户端请求的数据流
+         * @throws WrappedRpcServerException 状态错误
+         */
+        private void processConnectionContext(DataInputStream dis)
+                throws WrappedRpcServerException {
+            if (connectionContextRead) {
+                throw new WrappedRpcServerException(
+                        RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER,
+                        "Connection context already processed");
+            }
+            connectionContext = decodeProtobufFromStream(
+                    IpcConnectionContextProto.newBuilder(), dis);
+            protocolName = connectionContext.getProtocol();
+            connectionContextRead = true;
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T extends Message> T decodeProtobufFromStream(Message.Builder builder,
+                                                               DataInputStream dis) throws WrappedRpcServerException {
+            try {
+                builder.mergeDelimitedFrom(dis);
+                return (T) builder.build();
+            } catch (Exception e) {
+                Class<?> protoClass = builder.getDefaultInstanceForType().getClass();
+                throw new WrappedRpcServerException(RpcErrorCodeProto.FATAL_DESERIALIZING_REQUEST,
+                        "Error decoding " + protoClass.getSimpleName() + ": " + e);
+            }
         }
 
         private boolean isIdle() {

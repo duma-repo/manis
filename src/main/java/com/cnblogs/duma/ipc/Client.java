@@ -48,8 +48,6 @@ public class Client {
     private final int connectionTimeOut;
     private final byte[] clientId;
 
-    private final static int CONNECTION_CONTEXT_CALL_ID = -3;
-
     /**
      * 用来发送 调用header、方法名和参数信息
      * Executor 可以提供线程池
@@ -465,7 +463,7 @@ public class Client {
             RpcRequestHeaderProto connectionContextHeader = ProtoUtil
                     .makeRpcRequestHeader(RPC.RpcKind.RPC_PROTOCOL_BUFFER,
                             RpcRequestHeaderProto.OperationProto.RPC_FINAL_PACKET,
-                            CONNECTION_CONTEXT_CALL_ID, RpcConstants.INVALID_RETRY_COUNT,
+                            RpcConstants.CONNECTION_CONTEXT_CALL_ID, RpcConstants.INVALID_RETRY_COUNT,
                             clientId);
 
             RpcRequestMessageWrapper request =

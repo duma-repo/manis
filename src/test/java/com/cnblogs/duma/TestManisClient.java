@@ -15,6 +15,6 @@ public class TestManisClient {
 
         assert manisClient.manisDb instanceof ClientProtocol;
 
-        manisClient.getTableCount("db1", "tb1");
+//        manisClient.getTableCount("db1", "tb1");
     }
 }

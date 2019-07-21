@@ -17,6 +17,6 @@ public class TestManager {
         assert manager.manisDb instanceof ManagerProtocol;
         assert manager.manisDb != null;
 
-        manager.setMaxTable(100);
+//        manager.setMaxTable(100);
     }
 }
