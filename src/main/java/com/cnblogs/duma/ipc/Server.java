@@ -205,7 +205,29 @@ public abstract class Server {
     }
 
     public static class Call {
+        private final int callId;
+        private final int retryCount;
+        /** 客户端发来的序列化的 RPC 请求 */
+        private final Writable rpcRequest;
+        private final Connection connection;
+        private long timestamp;
 
+        /** 本次调用的响应信息 */
+        private ByteBuffer response;
+        private final RPC.RpcKind rpcKind;
+        private final byte[] clientId;
+
+        public Call(int id, int retryCount, Writable rpcRequest,
+                    Connection connection, RPC.RpcKind rpcKind, byte[] clientId) {
+            this.callId = id;
+            this.retryCount = retryCount;
+            this.rpcRequest = rpcRequest;
+            this.connection = connection;
+            this.timestamp = System.currentTimeMillis();
+            this.response = null;
+            this.rpcKind = rpcKind;
+            this.clientId = clientId;
+        }
     }
 
     /**
@@ -624,8 +646,8 @@ public abstract class Server {
                 throw new WrappedRpcServerException(
                         RpcErrorCodeProto.FATAL_DESERIALIZING_REQUEST, err);
             }
-            //todo new call
-            Call call = new Call();
+            Call call = new Call(header.getCallId(), header.getRetryCount(), rpcRequest, this,
+                    ProtoUtil.converRpcKind(header.getRpcKind()), header.getClientId().toByteArray());
             // 将 call 入队列，有可能在这里阻塞
             callQueue.put(call);
             incRpcCount();
