@@ -313,7 +313,7 @@ public abstract class Server {
                             iter.remove();
                             if (key.isValid() &&
                                 key.isReadable()) {
-//                                doRead();
+                                doRead(key);
                             }
                             key = null;
                         }
@@ -420,6 +420,25 @@ public abstract class Server {
             }
             conn.setLastContact(System.currentTimeMillis());
 
+            try {
+                count = conn.readAndProcess();
+            } catch (InterruptedException ioe) {
+                LOG.info(Thread.currentThread().getName() +
+                        " readAndProcess caught InterruptedException", ioe);
+            } catch (Exception e) {
+                // 这层进行异常的捕获，因为 WrappedRpcServerException 异常已经发送响应信息给客户端了
+                // 所以这里不处理该异常
+                LOG.info(Thread.currentThread().getName() + ": readAndProcess from client " +
+                        conn.getHostAddress() + " throw exception [" + e + " ]",
+                        (e instanceof WrappedRpcServerException) ? null : e);
+                count = -1;
+            }
+            if (count < 0) {
+                closeConnection(conn);
+                conn = null;
+            } else {
+                conn.setLastContact(System.currentTimeMillis());
+            }
         }
 
         Reader getReader() {
@@ -473,6 +492,9 @@ public abstract class Server {
         IpcConnectionContextProto connectionContext;
         String protocolName;
 
+        public String getHostAddress() {
+            return hostAddress;
+        }
 
         private volatile int rpcCount;
 
@@ -503,7 +525,7 @@ public abstract class Server {
             }
         }
 
-        int readAndProcess() throws IOException {
+        int readAndProcess() throws IOException, InterruptedException {
             while (true) {
                 // 至少读一次 RPC 的数据
                 // 一直迭代直到一次 RPC 的数据读完或者没有剩余的数据
@@ -573,7 +595,8 @@ public abstract class Server {
          * 处理一次 RPC 请求
          * @param buf RPC 请求的上下文或者调用请求
          */
-        private void processOneRpc(byte[] buf) throws WrappedRpcServerException {
+        private void processOneRpc(byte[] buf)
+                throws WrappedRpcServerException, InterruptedException {
             int callId = -1;
             int retry = RpcConstants.INVALID_RETRY_COUNT;
 
@@ -595,7 +618,7 @@ public abstract class Server {
                             RpcErrorCodeProto.FATAL_INVALID_RPC_HEADER,
                             "Connection context not found");
                 } else {
-                    // todo RPC 请求
+                    processRpcRequest(header, dis);
                 }
 
             } catch (WrappedRpcServerException wrse) {
@@ -618,6 +641,13 @@ public abstract class Server {
             }
         }
 
+        /**
+         * todo 注释
+         * @param header
+         * @param dis
+         * @throws WrappedRpcServerException
+         * @throws InterruptedException
+         */
         private void processRpcRequest(RpcRequestHeaderProto header,
                                        DataInputStream dis)
                 throws WrappedRpcServerException, InterruptedException {
