@@ -71,6 +71,13 @@ public abstract class Server {
         return (val == null) ? null : val.rpcRequestWrapperClass;
     }
 
+    public static RPC.RpcInvoker getRpcInvoker(RPC.RpcKind rpcKind) {
+        RpcKindMapValue val = rpcKindMap.get(rpcKind);
+        return (val == null) ? null : val.rpcInvoker;
+    }
+
+    private static final ThreadLocal<Call> curCall = new ThreadLocal<>();
+
     public static final Log LOG = LogFactory.getLog(Server.class);
     private String bindAddress;
     private int port;
@@ -157,6 +164,9 @@ public abstract class Server {
         }
     }
 
+    public abstract Writable call(RPC.RpcKind rpcKind, String protocol,
+                                  Writable param, long receiveTime) throws Exception;
+
     private void closeConnection(Connection conn) {
         connectionManager.close(conn);
     }
@@ -227,6 +237,12 @@ public abstract class Server {
             this.response = null;
             this.rpcKind = rpcKind;
             this.clientId = clientId;
+        }
+
+        @Override
+        public String toString() {
+            return rpcRequest + " from " + connection + " Call#" + callId +
+                    " Retry#" + retryCount;
         }
     }
 
@@ -448,6 +464,47 @@ public abstract class Server {
     }
 
     /**
+     * 处理队列中的调用请求
+     */
+    private class Handler extends Thread {
+        Handler(int instanceNumber) {
+            this.setDaemon(true);
+            this.setName("IPC Server handler " + instanceNumber + " on " + port);
+        }
+
+        @Override
+        public void run() {
+            LOG.debug(Thread.currentThread().getName() + ": starting.");
+            while (running) {
+                try {
+                    final Call call = callQueue.take();
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(Thread.currentThread().getName() + ": " + call +
+                                " for rpcKind " + call.rpcKind);
+                    }
+                    if (!call.connection.channel.isOpen()) {
+                        LOG.info(Thread.currentThread().getName() + ": skipped " + call);
+                        continue;
+                    }
+                    RpcStatusProto returnStatus = RpcStatusProto.SUCCESS;
+                    RpcErrorCodeProto detailedErr = null;
+                    Writable value = null;
+                    curCall.set(call);
+                    try {
+                        value = call(call.rpcKind, call.connection.protocolName,
+                                    call.rpcRequest, call.timestamp);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
      * 向客户端发送响应结果
      */
     private class Responder extends Thread {
@@ -507,6 +564,11 @@ public abstract class Server {
             this.remoteAddr = socket.getInetAddress();
             this.hostAddress = remoteAddr.getHostAddress();
             this.remotePort = socket.getPort();
+        }
+
+        @Override
+        public String toString() {
+            return getHostAddress() + ":" + remotePort;
         }
 
         private void checkDataLength(int dataLength) throws IOException {

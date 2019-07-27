@@ -6,10 +6,7 @@ import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.ProtobufRpcEngineProtos.RequestHeaderProto;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.util.ProtoUtil;
-import com.google.protobuf.CodedOutputStream;
-import com.google.protobuf.GeneratedMessage;
-import com.google.protobuf.Message;
-import com.google.protobuf.ServiceException;
+import com.google.protobuf.*;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -48,6 +45,7 @@ public class ProtobufRpcEngine implements RpcEngine {
         private Client client;
         private Client.ConnectionId remoteId;
         private final String protocolName;
+        private final long clientProtocolVersion;
         private final int NORMAL_ARGS_LEN = 2;
 
         private Invoker(Class<?> protocol,
@@ -56,6 +54,7 @@ public class ProtobufRpcEngine implements RpcEngine {
                        SocketFactory factory,
                        int rpcTimeOut) {
             this.protocolName = RPC.getProtocolName(protocol);
+            this.clientProtocolVersion = RPC.getProtocolVersion(protocol);
             this.remoteId = new Client.ConnectionId(address, protocol, rpcTimeOut, conf);
             this.client = new Client(null, conf, factory);
             System.out.println("init Invoker in ProtobufRpcEngine.");
@@ -66,6 +65,7 @@ public class ProtobufRpcEngine implements RpcEngine {
                     .newBuilder();
             headerBuilder.setMethodName(method.getName());
             headerBuilder.setDeclaringClassProtocolName(protocolName);
+            headerBuilder.setClientProtocolVersion(clientProtocolVersion);
 
             return headerBuilder.build();
         }
@@ -239,6 +239,50 @@ public class ProtobufRpcEngine implements RpcEngine {
         }
     }
 
+    /**
+     * Protocol Buffer 响应信息的 wrapper
+     *
+     */
+    public static class RpcResponseWrapper implements RpcWrapper {
+        Message theRespone;
+        byte[] theResponseRead;
+
+        public RpcResponseWrapper() {
+        }
+
+        public RpcResponseWrapper(Message theRespone) {
+            this.theRespone = theRespone;
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            OutputStream os = DataOutputOutputStream.constructDataOutputStream(out);
+
+            theRespone.writeDelimitedTo(os);
+        }
+
+        @Override
+        public void readFields(DataInput in) throws IOException {
+            int len = ProtoUtil.readRawVarInt32(in);
+            theResponseRead = new byte[len];
+            in.readFully(theResponseRead);
+        }
+
+        @Override
+        public int getLength() {
+            int resLen = 0;
+            if (theRespone != null) {
+                resLen = theRespone.getSerializedSize();
+            } else if (theResponseRead != null) {
+                resLen = theResponseRead.length;
+            } else {
+                throw new IllegalArgumentException(
+                        "getLength on uninitialized RpcWrapper");
+            }
+            return CodedOutputStream.computeRawVarint32Size(resLen) + resLen;
+        }
+    }
+
     @Override
     public RPC.Server getServer(Class<?> protocol, Object instance,
                                 String bindAddress, int port,
@@ -273,7 +317,80 @@ public class ProtobufRpcEngine implements RpcEngine {
         }
 
         static class ProtobufRpcInvoker implements RPC.RpcInvoker {
+            private static ProtoClassProtoImpl getProtocolImp(RPC.Server server,
+                                                              String protocolName,
+                                                              long clientVersion) {
+                ProtoNameVer pv = new ProtoNameVer(protocolName, clientVersion);
+                ProtoClassProtoImpl impl =
+                        server.getProtocolImplMap(RPC.RpcKind.RPC_PROTOCOL_BUFFER).get(pv);
+                if (impl == null) {
+                    //todo throw exception
+                }
+                return impl;
+            }
 
+            /**
+             *
+             * @param server
+             * @param protocol 协议名
+             * @param rpcRequest 反序列化后的调用参数
+             * @param receiveTime 接受到调用的信息
+             * @return
+             * @throws Exception
+             */
+            @Override
+            public Writable call(RPC.Server server, String protocol,
+                                 Writable rpcRequest, long receiveTime)
+                    throws Exception {
+                RpcRequestWrapper request = (RpcRequestWrapper) rpcRequest;
+                RequestHeaderProto requestHeader = request.requestHeader;
+                String methodName = requestHeader.getMethodName();
+                String protoName = requestHeader.getDeclaringClassProtocolName();
+                long clientVer = requestHeader.getClientProtocolVersion();
+                if (server.verbose) {
+                    LOG.info("Call: protocol=" + protocol + ", method=" + methodName);
+                }
+                ProtoClassProtoImpl protoClassImpl = getProtocolImp(server, protoName, clientVer);
+                BlockingService service = (BlockingService) protoClassImpl.protocolImpl;
+                Descriptors.MethodDescriptor methodDescriptor =
+                        service.getDescriptorForType().findMethodByName(methodName);
+                if (methodDescriptor == null) {
+                    String msg = "Unknown method " + methodName
+                            + " called on " + protocol + " protocol.";
+                    LOG.warn(msg);
+                    //todo thrown exception
+                }
+                Message protoType = service.getRequestPrototype(methodDescriptor);
+                Message param = protoType.newBuilderForType()
+                        .mergeFrom(request.theRequestRead)
+                        .build();
+                Message result;
+                long startTime = System.currentTimeMillis();
+                // 从接受请求到调用前的时间
+                int qTime = (int) (startTime = receiveTime);
+                Exception exception = null;
+                try {
+                    result = service.callBlockingMethod(methodDescriptor, null, param);
+                } catch (ServiceException se) {
+                    // callBlockingMethod 有可能抛出该异常
+                    exception = (Exception) se.getCause();
+                    throw exception;
+                } catch (Exception e) {
+                    exception = e;
+                    throw exception;
+                } finally {
+                    long processTime = (int) (System.currentTimeMillis() - startTime);
+                    if (LOG.isDebugEnabled()) {
+                        String msg = "Served: " + methodName + " queueTime= " + qTime +
+                                " processingTime= " + processTime;
+                        if (exception != null) {
+                            msg += " exception= " + exception.getClass().getSimpleName();
+                        }
+                        LOG.debug(msg);
+                    }
+                }
+                return new RpcResponseWrapper(result);
+            }
         }
     }
 }

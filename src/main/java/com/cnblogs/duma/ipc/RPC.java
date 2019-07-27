@@ -1,6 +1,7 @@
 package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.io.Writable;
 
 import javax.net.SocketFactory;
 import java.io.IOException;
@@ -36,7 +37,17 @@ public class RPC {
     }
 
     interface RpcInvoker {
-
+        /**
+         * 处理服务端的函数调用
+         * @param server
+         * @param protocol 协议名
+         * @param rpcRequest 反序列化后的调用参数
+         * @param receiveTime 接受到调用的信息
+         * @return 调用的返回值
+         * @throws Exception
+         */
+        Writable call(Server server, String protocol,
+                      Writable rpcRequest, long receiveTime) throws Exception;
     }
 
     /**
@@ -304,6 +315,12 @@ public class RPC {
             LOG.debug("RpcKind = " + rpcKind + " Protocol Name = " + protocolName +  " version=" + version +
                     " ProtocolImpl=" + protocolImpl.getClass().getName() +
                     " protocolClass=" + protocolClass.getName());
+        }
+
+        @Override
+        public Writable call(RpcKind rpcKind, String protocol,
+                             Writable param, long receiveTime) throws Exception {
+            return getRpcInvoker(rpcKind).call(this, protocol, param, receiveTime);
         }
     }
 }
