@@ -54,6 +54,7 @@ public class TestSerDeser {
         RequestHeaderProto header = RequestHeaderProto.newBuilder()
                 .setMethodName("testRpcRequestWrapper")
                 .setDeclaringClassProtocolName("testProtocolName")
+                .setClientProtocolVersion(1)
                 .build();
         GetTableCountRequestProto req = GetTableCountRequestProto.newBuilder()
                 .setDbName("db1")

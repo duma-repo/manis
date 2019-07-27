@@ -15,4 +15,5 @@ package duma.manis;
 message RequestHeaderProto {
     required string methodName = 1;
     required string declaringClassProtocolName = 2;
+    required int64 clientProtocolVersion = 3;
 }
