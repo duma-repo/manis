@@ -67,8 +67,12 @@ public class ManisDbRpcServer implements ManisDbProtocols {
     }
 
     @Override
-    public int getTableCount(String dbName, String tbName) throws IOException {
-        return 0;
+    public int getTableCount(String dbName, String tbName)
+            throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("GET table count for db: " + dbName + " tb: " + tbName);
+        }
+        return 10;
     }
 
     @Override

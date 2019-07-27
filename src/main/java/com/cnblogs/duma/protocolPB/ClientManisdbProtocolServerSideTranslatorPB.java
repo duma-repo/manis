@@ -5,6 +5,8 @@ import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos.*;
 import com.google.protobuf.RpcController;
 import com.google.protobuf.ServiceException;
 
+import java.io.IOException;
+
 /**
  * 该类在服务端使用 {@link ClientManisDbProtocolPB}
  * 它将 PB 数据类型转到 ClientProtocol 接口中定义的数据类型
@@ -24,6 +26,13 @@ public class ClientManisdbProtocolServerSideTranslatorPB
             RpcController controller,
             GetTableCountRequestProto request)
             throws ServiceException {
-        return null;
+        String dbName = request.getDbName();
+        String tbName = request.getTbName();
+        try {
+            int ret = server.getTableCount(dbName, tbName);
+            return GetTableCountResponseProto.newBuilder().setResult(ret).build();
+        } catch (IOException e) {
+            throw new ServiceException(e);
+        }
     }
 }
