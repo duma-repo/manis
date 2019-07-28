@@ -5,19 +5,19 @@ import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.util.ProtoUtil;
 import com.cnblogs.duma.util.StringUtils;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.Message;
 import com.sun.org.apache.bcel.internal.generic.Select;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.lang.reflect.Constructor;
 import java.net.*;
 import java.nio.ByteBuffer;
@@ -148,6 +148,67 @@ public abstract class Server {
     }
 
     /**
+     * 为 IPC 调用构造响应信息
+     * @param responseBuf 序列化响应信息的 buffer
+     * @param call {@link Call} 对象
+     * @param status 调用状态
+     * @param errorCode 调用错误码
+     * @param resValue 如果调用成功，代表调用的返回值。如果调用失败则为 null
+     * @param errorClass error class
+     * @param error 调用错误的堆栈信息
+     * @throws IOException
+     */
+    private void setupResponse(ByteArrayOutputStream responseBuf,
+                               Call call, RpcStatusProto status, RpcErrorCodeProto errorCode,
+                               Writable resValue, String errorClass, String error) throws IOException {
+        responseBuf.reset();
+        DataOutputStream out = new DataOutputStream(responseBuf);
+        RpcResponseHeaderProto.Builder headerBuilder =
+                RpcResponseHeaderProto.newBuilder();
+        headerBuilder.setClientId(ByteString.copyFrom(call.clientId));
+        headerBuilder.setCallId(call.callId);
+        headerBuilder.setRetryCount(call.retryCount);
+        headerBuilder.setStatus(status);
+        headerBuilder.setServerIpcVersionNum(RpcConstants.CURRENT_VERSION);
+
+        if (status == RpcStatusProto.SUCCESS) {
+            RpcResponseHeaderProto header = headerBuilder.build();
+            final int headerLen = header.getSerializedSize();
+            int fullLength = CodedOutputStream.computeRawVarint32Size(headerLen) + headerLen;
+            try {
+                if (resValue instanceof ProtobufRpcEngine.RpcWrapper) {
+                    // protocol buf
+                    ProtobufRpcEngine.RpcWrapper resWrapper =
+                            (ProtobufRpcEngine.RpcWrapper) resValue;
+                    fullLength += resWrapper.getLength();
+                    out.write(fullLength);
+                    header.writeDelimitedTo(out);
+                    resValue.write(out);
+                } else { //
+                    // todo
+                }
+            } catch (Throwable t) {
+                LOG.warn("Error serializing call response for call " + call, t);
+                // 序列化出错时，需要递归调用该函数，创建一个序列化错误的响应信息
+                setupResponse(responseBuf, call,
+                        RpcStatusProto.ERROR, RpcErrorCodeProto.ERROR_SERIALIZING_RESPONSE,
+                        null, t.getClass().getName(),
+                        StringUtils.stringifyException(t));
+            }
+        } else {
+            headerBuilder.setErrorDetail(errorCode);
+            headerBuilder.setExceptionClassName(errorClass);
+            headerBuilder.setErrorMsg(error);
+            RpcResponseHeaderProto header = headerBuilder.build();
+            int headerLen = header.getSerializedSize();
+            final int fullLength = CodedOutputStream.computeRawVarint32Size(headerLen) + headerLen;
+            out.write(fullLength);
+            header.writeDelimitedTo(out);
+        }
+        call.setResponse(ByteBuffer.wrap(responseBuf.toByteArray()));
+    }
+
+    /**
      * 启动服务
      * todo synchronized 必须加的吗
      */
@@ -238,6 +299,10 @@ public abstract class Server {
             this.response = null;
             this.rpcKind = rpcKind;
             this.clientId = clientId;
+        }
+
+        public void setResponse(ByteBuffer response) {
+            this.response = response;
         }
 
         @Override
@@ -476,6 +541,7 @@ public abstract class Server {
         @Override
         public void run() {
             LOG.debug(Thread.currentThread().getName() + ": starting.");
+            ByteArrayOutputStream buf = new ByteArrayOutputStream(10240);
             while (running) {
                 try {
                     final Call call = callQueue.take();
@@ -518,7 +584,8 @@ public abstract class Server {
                     }
                     curCall.set(null);
 //                    synchronized (call.connection.) {
-//
+                    setupResponse(buf, call, returnStatus,
+                            detailedErr, value, errorClass, error);
 //                    }
                 } catch (InterruptedException e) {
                     LOG.info(Thread.currentThread().getName() + " unexpectedly interrupted", e);
