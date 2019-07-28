@@ -8,6 +8,7 @@ import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.util.ProtoUtil;
+import com.cnblogs.duma.util.StringUtils;
 import com.google.protobuf.Message;
 import com.sun.org.apache.bcel.internal.generic.Select;
 import org.apache.commons.logging.Log;
@@ -486,6 +487,8 @@ public abstract class Server {
                         LOG.info(Thread.currentThread().getName() + ": skipped " + call);
                         continue;
                     }
+                    String errorClass = null;
+                    String error = null;
                     RpcStatusProto returnStatus = RpcStatusProto.SUCCESS;
                     RpcErrorCodeProto detailedErr = null;
                     Writable value = null;
@@ -493,14 +496,37 @@ public abstract class Server {
                     try {
                         value = call(call.rpcKind, call.connection.protocolName,
                                     call.rpcRequest, call.timestamp);
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    } catch (Throwable e) {
+                        String logMsg = Thread.currentThread().getName() + ", call " + call;
+                        if (e instanceof RuntimeException || e instanceof Error) {
+                            // 抛出该类型的错误说明服务端自身出现问题
+                            LOG.warn(logMsg, e);
+                        } else {
+                            // 属于正常情况的异常抛出
+                            LOG.info(logMsg, e);
+                        }
+                        if (e instanceof RpcServerException) {
+                            RpcServerException rse = (RpcServerException) e;
+                            returnStatus = rse.getRpcStatusProto();
+                            detailedErr = rse.getRpcErrorCode();
+                        } else {
+                            returnStatus = RpcStatusProto.ERROR;
+                            detailedErr = RpcErrorCodeProto.ERROR_APPLICATION;
+                        }
+                        errorClass = e.getClass().getName();
+                        error = StringUtils.stringifyException(e);
                     }
-
+                    curCall.set(null);
+//                    synchronized (call.connection.) {
+//
+//                    }
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    LOG.info(Thread.currentThread().getName() + " unexpectedly interrupted", e);
+                } catch (Exception e) {
+                    LOG.info(Thread.currentThread().getName() + " caught an exception", e);
                 }
             }
+            LOG.debug(Thread.currentThread().getName() + ": exiting");
         }
     }
 
