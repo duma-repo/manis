@@ -256,16 +256,33 @@ public abstract class Server {
     private static int NIO_BUFFER_LIMIT = 8*1024;
 
     /**
+     * 该函数是 {@link WritableByteChannel#write(ByteBuffer)} 的 wrapper
+     * 如果需要读数据量较大, 可以分成小块从 channel 写数据。这样，可以避免
+     * 随着 ByteBuffer 大小的增加，jdk 创建大量 buffer，从而避免性能衰减
+     *
+     * @see WritableByteChannel#write(ByteBuffer)
+     * @param channel
+     * @param buffer
+     * @return 写入的字节数
+     * @throws IOException
+     */
+    private int channelWrite(WritableByteChannel channel,
+                             ByteBuffer buffer) throws IOException {
+        int count = (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
+                channel.write(buffer) : channelIO(null, channel, buffer);
+        return count;
+    }
+
+    /**
      * 该函数是 {@link ReadableByteChannel#read(ByteBuffer)} 的 wrapper
-     * 如果需要读数据量较大, it writes to channel in smaller chunks.
-     * This is to avoid jdk from creating many direct buffers as the size of
-     * ByteBuffer increases. There should not be any performance degredation.
+     * 如果需要读数据量较大, 可以分成小块从 channel 读数据。这样，可以避免
+     * 随着 ByteBuffer 大小的增加，jdk 创建大量 buffer，从而避免性能衰减
      *
      * @see ReadableByteChannel#read(ByteBuffer)
      */
     private int channelRead(ReadableByteChannel channel,
                             ByteBuffer buffer) throws IOException {
-        int count = (buffer.remaining() < NIO_BUFFER_LIMIT) ?
+        int count = (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
                 channel.read(buffer) : channelIO(channel, null, buffer);
         return count;
     }
@@ -587,6 +604,14 @@ public abstract class Server {
                     setupResponse(buf, call, returnStatus,
                             detailedErr, value, errorClass, error);
 //                    }
+
+                    //如果 buf 占用空间太大则丢弃掉，重新将 buf 调到初始大小以释放堆内存
+                    if (buf.size() > maxRespSize) {
+                        LOG.info("Large response size " + buf.size() + " for call "
+                                + call.toString());
+                        buf = new ByteArrayOutputStream(10240);
+                    }
+                    responder.doResponse(call);
                 } catch (InterruptedException e) {
                     LOG.info(Thread.currentThread().getName() + " unexpectedly interrupted", e);
                 } catch (Exception e) {
@@ -601,7 +626,115 @@ public abstract class Server {
      * 向客户端发送响应结果
      */
     private class Responder extends Thread {
+        private final Selector writeSelector;
+        private int pendding;
 
+        Responder() throws IOException {
+            this.setName("IPC Server Responder");
+            this.setDaemon(true);
+            writeSelector = Selector.open();
+            pendding = 0;
+        }
+
+        private boolean processResponse(LinkedList<Call> responseQueue,
+                                        boolean isHandler) throws IOException {
+            boolean error = true;
+            boolean done = false;
+            int numElements = 0;
+            Call call = null;
+
+            try {
+                numElements = responseQueue.size();
+                if (numElements == 0) {
+                    error = false;
+                    return true;
+                }
+                // 取出第一个 Call 对象，发送响应信息
+                call =  responseQueue.removeFirst();
+                SocketChannel channel = call.connection.channel;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(Thread.currentThread().getName() + ": responding to " + call);
+                }
+                // 将响应信息发送到channel
+                int numBytes = channelWrite(channel, call.response);
+                if (numBytes < 0) {
+                    return true;
+                }
+
+                if (!call.response.hasRemaining()) {
+                    call.response = null;
+                    call.connection.decRpcCount();
+                    if (numElements == 1) {
+                        done = true;
+                    } else {
+                        done = false;
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(Thread.currentThread().getName() + ": responding to " + call
+                                + " Wrote " + numBytes + " bytes.");
+                    }
+                } else {
+                    // 说明一次性没有写完，继续放入队列中
+                    call.connection.responseQueue.addFirst(call);
+
+                    /**
+                     * 如果 isHandler = true 说明队列只有当前处理的一个 Call 对象，如果本次未处理完，需要重新
+                     * 放入队列给该渠道注册一个 OP_WRITE 事件，后续由 Responder 线程继续处理
+                     */
+                    if (isHandler) {
+                        call.timestamp = System.currentTimeMillis();
+
+                        incPendding();
+                        try {
+                            // 如果 writeSelector 在 select 上阻塞，无法成功地 register
+                            writeSelector.wakeup();
+                            channel.register(writeSelector, SelectionKey.OP_WRITE, call);
+                        } catch (ClosedChannelException e) {
+                            done = true;
+                        } finally {
+                            decPendding();
+                        }
+                    }
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(Thread.currentThread().getName() + ": responding to " + call
+                                + " Wrote partial " + numBytes + " bytes.");
+                    }
+                    error = false;
+                }
+            } finally {
+                if (error && call != null) {
+                    LOG.warn(Thread.currentThread().getName()+", call " + call + ": output error");
+                    done = true;
+                    closeConnection(call.connection);
+                }
+            }
+
+            return done;
+        }
+        /**
+         * 将 Call 对象放入 Connection 对象的响应队列中
+         * 并发送响应信息
+         * @param call
+         */
+        void doResponse(Call call) throws IOException {
+            synchronized (call.connection.responseQueue) {
+                call.connection.responseQueue.addLast(call);
+                // 如果队列只有当前的响应信息，直接写响应信息
+                // 否则，只写入队列，Handler 线程不做响应信息的发送
+                if (call.connection.responseQueue.size() == 1) {
+                    processResponse(call.connection.responseQueue, true);
+                }
+            }
+        }
+
+        private synchronized void incPendding() {
+            pendding++;
+        }
+
+        private synchronized void decPendding() {
+            pendding--;
+        }
     }
 
     private static class WrappedRpcServerException extends IOException {
@@ -633,6 +766,7 @@ public abstract class Server {
 
         private ByteBuffer data;
         private ByteBuffer dataLengthBuffer;
+        private final LinkedList<Call> responseQueue;
         private Socket socket;
         private ByteBuffer connectionHeaderBuf = null;
         private InetAddress remoteAddr;
@@ -657,6 +791,7 @@ public abstract class Server {
             this.remoteAddr = socket.getInetAddress();
             this.hostAddress = remoteAddr.getHostAddress();
             this.remotePort = socket.getPort();
+            this.responseQueue = new LinkedList<Call>();
         }
 
         @Override
@@ -894,6 +1029,10 @@ public abstract class Server {
 
         private void incRpcCount() {
             rpcCount++;
+        }
+
+        private void decRpcCount() {
+            rpcCount--;
         }
 
         private void setLastContact(long lastContact) {
