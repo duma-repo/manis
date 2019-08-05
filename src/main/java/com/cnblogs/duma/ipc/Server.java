@@ -99,6 +99,7 @@ public abstract class Server {
     private ConnectionManager connectionManager;
     private Listener listener;
     private Responder responder;
+    private Handler[] handlers = null;
 
     private Configuration conf;
 
@@ -214,6 +215,13 @@ public abstract class Server {
      */
     public synchronized void start() {
         listener.start();
+        responder.start();
+        handlers = new Handler[handlerCount];
+
+        for (int i = 0; i < handlerCount; i++) {
+            handlers[i] = new Handler(i);
+            handlers[i].start();
+        }
     }
 
     /**
