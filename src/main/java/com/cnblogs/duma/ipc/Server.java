@@ -635,13 +635,128 @@ public abstract class Server {
      */
     private class Responder extends Thread {
         private final Selector writeSelector;
-        private int pendding;
+        private int pending;
+
+        final static int PURGE_INTERVAL = 900000; // 15mins
 
         Responder() throws IOException {
             this.setName("IPC Server Responder");
             this.setDaemon(true);
             writeSelector = Selector.open();
-            pendding = 0;
+            pending = 0;
+        }
+
+        @Override
+        public void run() {
+            LOG.info(Thread.currentThread().getName() + ": starting.");
+            try {
+                doRunLoop();
+            } finally {
+                LOG.info("Stopping " + Thread.currentThread().getName());
+                try {
+                    writeSelector.close();
+                } catch (IOException ioe) {
+                    LOG.error("Couldn't close write selector in " + Thread.currentThread().getName(), ioe);
+                }
+            }
+        }
+
+        private void doRunLoop() {
+            long lastPurgeTime = 0;
+
+            while (running) {
+                try {
+                    // 如果有渠道正在注册，便先等待
+                    waitPendding();
+                    writeSelector.select(PURGE_INTERVAL);
+                    Iterator<SelectionKey> iter = writeSelector.selectedKeys().iterator();
+                    while (iter.hasNext()) {
+                        SelectionKey key = iter.next();
+                        iter.remove();
+                        try {
+                            if (key.isValid() && key.isWritable()) {
+                                doAsyncWrite(key);
+                            }
+                        } catch (IOException ioe) {
+                            LOG.info(Thread.currentThread().getName() + ": doAsyncWrite threw exception " + ioe);
+                        }
+                    }
+                    long now = System.currentTimeMillis();
+                    if (now < lastPurgeTime + PURGE_INTERVAL) {
+                        continue;
+                    }
+                    lastPurgeTime = now;
+
+                    if(LOG.isDebugEnabled()) {
+                        LOG.debug("Checking for old call responses.");
+                    }
+                    ArrayList<Call> calls = null;
+
+                    synchronized (writeSelector.keys()) {
+                        // 锁住 writeSelector.keys() 对象，防止新的 channel 注册
+                        calls = new ArrayList<>(writeSelector.keys().size());
+                        iter = writeSelector.keys().iterator();
+                        while (iter.hasNext()) {
+                            SelectionKey key = iter.next();
+                            Call call = (Call)key.attachment();
+                            if (call != null && key.channel() == call.connection.channel) {
+                                calls.add(call);
+                            }
+                        }
+                    }
+
+                    // 如果有长时间（超过15min）未发送的 calls，关闭连接，丢弃它们
+                    for (Call call : calls) {
+                        doPurge(call, now);
+                    }
+                } catch (OutOfMemoryError e) {
+                    // 如果太多事件需要响应，可能会内存溢出
+                    LOG.warn("Out of Memory in server select", e);
+                    try { Thread.sleep(60000); } catch (Exception ie) {}
+                } catch (Exception e) {
+                    LOG.warn("Exception in Responder", e);
+                }
+            }
+        }
+
+        private void doAsyncWrite(SelectionKey key) throws IOException {
+            Call call = (Call) key.attachment();
+            if (call == null) {
+                return;
+            }
+            if (call.connection.channel != key.channel()) {
+                throw new IOException("doAsyncWrite: bad channel");
+            }
+            synchronized (call.connection.responseQueue) {
+                if (processResponse(call.connection.responseQueue, false)) {
+                    // 如果队列 call 处理完毕，清除 OP_WRITE
+                    try {
+                        key.interestOps(0);
+                    } catch (CancelledKeyException e) {
+                         //Listener 或者 Reader 线程可能关闭了该 socket
+                        LOG.warn("Exception while changing ops : " + e);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 如果 responseQueue 存在长时间未被处理的 calls，关闭该连接
+         * @param call Call 对象
+         * @param now
+         */
+        private void doPurge(Call call, long now) {
+            LinkedList<Call> responseQueue = call.connection.responseQueue;
+            synchronized (responseQueue) {
+                ListIterator<Call> iter = responseQueue.listIterator(0);
+                while (iter.hasNext()) {
+                    call = iter.next();
+                    if (now > call.timestamp + PURGE_INTERVAL) {
+                        closeConnection(call.connection);
+                        break;
+                    }
+                }
+            }
         }
 
         private boolean processResponse(LinkedList<Call> responseQueue,
@@ -692,6 +807,7 @@ public abstract class Server {
                     if (isHandler) {
                         call.timestamp = System.currentTimeMillis();
 
+                        // 防止 wakeup 后 register 之前再次进入 select 等待，需要加锁，让 responder 线程等待
                         incPendding();
                         try {
                             // 如果 writeSelector 在 select 上阻塞，无法成功地 register
@@ -737,11 +853,18 @@ public abstract class Server {
         }
 
         private synchronized void incPendding() {
-            pendding++;
+            pending++;
         }
 
         private synchronized void decPendding() {
-            pendding--;
+            pending--;
+            notify();
+        }
+
+        private synchronized void waitPendding() throws InterruptedException {
+            while (pending > 0) {
+                wait();
+            }
         }
     }
 
