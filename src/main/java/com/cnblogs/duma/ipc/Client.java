@@ -506,9 +506,54 @@ public class Client {
             return server;
         }
 
+        private synchronized boolean waitForWork() {
+            if (calls.isEmpty() && !shouldCloaseConnection.get() && running.get()) {
+                long timeout = maxIdleTime -
+                        (System.currentTimeMillis() - lastActivity.get());
+                try {
+                    // 如果 calls 为空，先等待一段时间
+                    wait(timeout);
+                } catch (InterruptedException e) {
+                    LOG.warn("Connection thread was interrupted in client.", e);
+                }
+            }
+
+            if (!calls.isEmpty() && !shouldCloaseConnection.get() && running.get()) {
+                return true;
+            } else if (shouldCloaseConnection.get()) {
+                return false;
+            } else if (calls.isEmpty()) {
+                // 没有了 calls ，需要终止连接
+                markClosed(null);
+                return false;
+            } else {
+                // running 状态已经为 false，但仍然有 calls
+                markClosed(new IOException("", new InterruptedException()));
+                return false;
+            }
+        }
+
         @Override
         public void run() {
-            super.run();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(getName() + ": starting, having connections " +
+                        connections.size());
+            }
+
+            try {
+                while (waitForWork()) {
+
+                }
+            } catch (Throwable t) {
+
+            }
+
+            close();
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(getName() + ": stopped, remaining connections "
+                        + connections.size());
+            }
         }
 
         /**
