@@ -14,6 +14,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.Message;
 import com.sun.org.apache.bcel.internal.generic.Select;
+import com.sun.xml.internal.bind.v2.util.ByteArrayOutputStreamEx;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -177,17 +178,15 @@ public abstract class Server {
             final int headerLen = header.getSerializedSize();
             int fullLength = CodedOutputStream.computeRawVarint32Size(headerLen) + headerLen;
             try {
-                if (resValue instanceof ProtobufRpcEngine.RpcWrapper) {
-                    // protocol buf
-                    ProtobufRpcEngine.RpcWrapper resWrapper =
-                            (ProtobufRpcEngine.RpcWrapper) resValue;
-                    fullLength += resWrapper.getLength();
-                    out.write(fullLength);
-                    header.writeDelimitedTo(out);
-                    resValue.write(out);
-                } else { //
-                    // todo
-                }
+                ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                DataOutputStream tmpOut = new DataOutputStream(bo);
+                resValue.write(tmpOut);
+                byte[] data = bo.toByteArray();
+
+                fullLength += data.length;
+                out.write(fullLength);
+                header.writeDelimitedTo(out);
+                out.write(data, 0, data.length);
             } catch (Throwable t) {
                 LOG.warn("Error serializing call response for call " + call, t);
                 // 序列化出错时，需要递归调用该函数，创建一个序列化错误的响应信息

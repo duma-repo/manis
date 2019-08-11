@@ -28,8 +28,8 @@ public class App
         int res = manisClient.getTableCount("db1", "tb1");
         System.out.println(res);
 
-        Manager manager = new Manager(URI.create("manis://localhost:8866"), conf);
-        manager.setMaxTable(1);
+//        Manager manager = new Manager(URI.create("manis://localhost:8866"), conf);
+//        manager.setMaxTable(1);
 
 
         while (true) {
