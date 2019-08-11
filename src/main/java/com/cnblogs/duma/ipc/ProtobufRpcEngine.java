@@ -56,7 +56,7 @@ public class ProtobufRpcEngine implements RpcEngine {
             this.protocolName = RPC.getProtocolName(protocol);
             this.clientProtocolVersion = RPC.getProtocolVersion(protocol);
             this.remoteId = new Client.ConnectionId(address, protocol, rpcTimeOut, conf);
-            this.client = new Client(null, conf, factory);
+            this.client = new Client(RpcResponseWrapper.class, conf, factory);
             System.out.println("init Invoker in ProtobufRpcEngine.");
         }
 

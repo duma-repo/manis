@@ -2,13 +2,19 @@ package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
+import com.cnblogs.duma.io.IOUtils;
 import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.ProtobufRpcEngine.RpcRequestMessageWrapper;
 import com.cnblogs.duma.ipc.protobuf.IpcConnectionContextProtos.IpcConnectionContextProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto;
+import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.*;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
 import com.cnblogs.duma.net.NetUtils;
 import com.cnblogs.duma.util.ProtoUtil;
+import com.cnblogs.duma.util.StringUtils;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.protobuf.CodedOutputStream;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import sun.nio.ch.Net;
@@ -18,9 +24,7 @@ import java.io.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.*;
-import java.rmi.RemoteException;
-import java.util.Hashtable;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -113,6 +117,23 @@ public class Client {
                 CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_TIMEOUT_DEFAULT);
         this.clientId = ClientId.getClientId();
         this.sendParamsExecutor = clientExecutorFactory.refAndGetInstance();
+    }
+
+    void checkResponse(RpcResponseHeaderProto header) throws IOException {
+        if (header == null) {
+            throw new IOException("Response is null.");
+        }
+
+        if (header.hasClientId()) {
+            final byte[] responseId = header.getClientId().toByteArray();
+            if (!Arrays.equals(responseId, RpcConstants.DUMMY_CLIENT_ID)) {
+                if (!Arrays.equals(responseId, clientId)) {
+                    throw new IOException("Client IDs not matched: local ID="
+                            + StringUtils.byteToHexString(clientId) + ", ID in response="
+                            + StringUtils.byteToHexString(header.getClientId().toByteArray()));
+                }
+            }
+        }
     }
 
     Call createCall(RPC.RpcKind rpcKind, Writable rpcRequest) {
@@ -542,10 +563,11 @@ public class Client {
 
             try {
                 while (waitForWork()) {
-
+                    receiveRpcResponse();
                 }
             } catch (Throwable t) {
-
+                LOG.warn("Unexpected error reading responses on connection " + this, t);
+                markClosed(new IOException("Error reading responses", t));
             }
 
             close();
@@ -614,11 +636,7 @@ public class Client {
                             markClosed(e);
                         } finally {
                             //todo close stream 关闭临时输出流
-                            try {
-                                tmpOut.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
+                            IOUtils.closeStream(tmpOut);
                         }
                     }
                 });
@@ -642,6 +660,73 @@ public class Client {
             }
         }
 
+        private void receiveRpcResponse() {
+            if (shouldCloaseConnection.get()) {
+                return;
+            }
+            touch();
+
+            try {
+                int totalLen = in.read();
+                RpcResponseHeaderProto header =
+                        RpcResponseHeaderProto.parseDelimitedFrom(in);
+                checkResponse(header);
+
+                int headerLen = header.getSerializedSize();
+                headerLen += CodedOutputStream.computeRawVarint32Size(headerLen);
+
+                int callId = header.getCallId();
+                if (LOG.isDebugEnabled())
+                    LOG.debug(getName() + " got value #" + callId);
+
+                Call call = calls.get(callId);
+                RpcStatusProto status = header.getStatus();
+                if (status == RpcStatusProto.SUCCESS) {
+                    Writable value = null;
+                    try {
+                        /** todo 封装一个方法 */
+                        Constructor<? extends Writable> constructor =
+                                valueClass.getDeclaredConstructor();
+                        constructor.setAccessible(true);
+                        value = constructor.newInstance();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    value.readFields(in);
+                    calls.remove(callId);
+                    call.setRpcResponse(value);
+                } else {
+                    if (totalLen != headerLen) {
+                        throw new RpcClientException(
+                                "RPC response length mismatch on rpc error");
+                    }
+
+                    String exceptionClassName =
+                            header.hasExceptionClassName() ?
+                                    header.getExceptionClassName() : "ServerDidNotSetExceptionClassName";
+                    String errMsg =
+                            header.hasErrorMsg() ?
+                                    header.getErrorMsg() : "ServerDidNotSetErrorMsg";
+                    final RpcErrorCodeProto errCode =
+                            header.hasErrorDetail() ?
+                                    header.getErrorDetail() : null;
+                    if (errCode == null) {
+                        LOG.warn("Detailed error code not set by server on rpc error");
+                    }
+                    RemoteException re =
+                            new RemoteException(exceptionClassName, errMsg, errCode);
+                    if (status == RpcStatusProto.ERROR) {
+                        calls.remove(callId);
+                        call.setException(re);
+                    } else {
+                        markClosed(re);
+                    }
+                }
+            } catch (IOException e) {
+                markClosed(e);
+            }
+        }
+
         private synchronized void markClosed(IOException e) {
             if (shouldCloaseConnection.compareAndSet(false, true)) {
                 closeException = e;
@@ -649,9 +734,53 @@ public class Client {
             }
         }
 
-        //todo close
+        /**
+         * 关闭连接
+         */
         private synchronized void close() {
+            if (!shouldCloaseConnection.get()) {
+                LOG.error("The connection is not in the closed state");
+                return;
+            }
 
+            // 释放连接资源
+            synchronized (connections) {
+                if (connections.get(remoteId) == this) {
+                    connections.remove(remoteId);
+                }
+            }
+
+            IOUtils.closeStream(in);
+            IOUtils.closeStream(out);
+
+            if (closeException == null) {
+                if (!calls.isEmpty()) {
+                    LOG.warn("A connection is closed for no cause and calls are not empty");
+                    closeException = new IOException("Unexpected closed connection");
+                    cleanupCalls();
+                }
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("closing ipc connection to " + server + ": " +
+                            closeException.getMessage(),closeException);
+                }
+                cleanupCalls();
+            }
+            closeConnection();
+            if (LOG.isDebugEnabled())
+                LOG.debug(getName() + ": closed");
+        }
+
+        /**
+         * 清楚所有的 call，并标记为异常
+         */
+        private void cleanupCalls() {
+            Iterator<Map.Entry<Integer, Call>> iter = calls.entrySet().iterator();
+            while (iter.hasNext()) {
+                Call call = iter.next().getValue();
+                iter.remove();
+                call.setException(closeException);
+            }
         }
     }
 
