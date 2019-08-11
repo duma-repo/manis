@@ -4,6 +4,7 @@ import com.cnblogs.duma.conf.CommonConfigurationKeysPublic;
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.ipc.ProtobufRpcEngine;
 import com.cnblogs.duma.ipc.RPC;
+import com.cnblogs.duma.protocol.ManagerManisDbProtocolSerializable;
 import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos.ClientManisDbProtocol;
 import com.cnblogs.duma.protocolPB.ClientManisDbProtocolPB;
 import com.cnblogs.duma.protocolPB.ClientManisdbProtocolServerSideTranslatorPB;
@@ -50,6 +51,8 @@ public class ManisDbRpcServer implements ManisDbProtocols {
                 .setNumHandlers(handlerCount)
                 .setVerbose(true)
                 .build();
+        ManisDbUtil.addSeriablizableProtocol(conf, ManagerManisDbProtocolSerializable.class,
+                this, protoBufRpcServer);
     }
 
     /**

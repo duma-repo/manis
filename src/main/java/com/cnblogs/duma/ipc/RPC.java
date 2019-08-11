@@ -317,6 +317,16 @@ public class RPC {
                     " protocolClass=" + protocolClass.getName());
         }
 
+        /**
+         * 向 server 中增加协议与实现类的映射
+         * @param rpcKind
+         * @param protocolClass
+         * @param protocolImpl
+         */
+        public void addProtocol(RpcKind rpcKind, Class<?> protocolClass, Object protocolImpl) {
+            registerProtocolAndImpl(rpcKind, protocolClass, protocolImpl);
+        }
+
         @Override
         public Writable call(RpcKind rpcKind, String protocol,
                              Writable param, long receiveTime) throws Exception {

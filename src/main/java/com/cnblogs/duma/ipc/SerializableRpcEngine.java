@@ -18,6 +18,13 @@ import java.net.InetSocketAddress;
 public class SerializableRpcEngine implements RpcEngine {
     public static final Log LOG = LogFactory.getLog(SerializableRpcEngine.class);
 
+    static {
+        com.cnblogs.duma.ipc.Server.registerProtocolEngine(
+                RPC.RpcKind.RPC_SERIALIZABLE,
+                Invocation.class,
+                new SerializableRpcEngine.Server.SerializableRpcInvoker());
+    }
+
     private static class Invocation implements Writable {
         private String methodName;
         private Class<?>[] parameterClasses;
@@ -135,5 +142,24 @@ public class SerializableRpcEngine implements RpcEngine {
                                 boolean verbose, Configuration conf
                                 ) throws IOException {
         return null;
+    }
+
+    public static class Server extends RPC.Server {
+
+        public Server(String bindAddress, int port, int numHandlers
+                , int numReaders, int queueSizePerHandler
+                , Configuration conf) throws IOException {
+            super(bindAddress, port, numHandlers, numReaders, queueSizePerHandler, conf);
+        }
+
+        static class SerializableRpcInvoker implements RPC.RpcInvoker {
+
+            @Override
+            public Writable call(RPC.Server server, String protocol,
+                                 Writable rpcRequest, long receiveTime) throws Exception {
+                System.out.println("call in SerializableRpcEngine");
+                return null;
+            }
+        }
     }
 }

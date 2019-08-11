@@ -824,8 +824,8 @@ public abstract class Server {
                         LOG.debug(Thread.currentThread().getName() + ": responding to " + call
                                 + " Wrote partial " + numBytes + " bytes.");
                     }
-                    error = false;
                 }
+                error = false;
             } finally {
                 if (error && call != null) {
                     LOG.warn(Thread.currentThread().getName()+", call " + call + ": output error");
