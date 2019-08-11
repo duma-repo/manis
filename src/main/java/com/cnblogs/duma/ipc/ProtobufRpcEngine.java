@@ -5,6 +5,7 @@ import com.cnblogs.duma.io.DataOutputOutputStream;
 import com.cnblogs.duma.io.Writable;
 import com.cnblogs.duma.ipc.protobuf.ProtobufRpcEngineProtos.RequestHeaderProto;
 import com.cnblogs.duma.ipc.protobuf.RpcHeaderProtos.RpcRequestHeaderProto;
+import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos;
 import com.cnblogs.duma.util.ProtoUtil;
 import com.google.protobuf.*;
 import org.apache.commons.logging.Log;
@@ -12,9 +13,12 @@ import org.apache.commons.logging.LogFactory;
 
 import javax.net.SocketFactory;
 import java.io.*;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author duma
@@ -106,15 +110,42 @@ public class ProtobufRpcEngine implements RpcEngine {
 
             RequestHeaderProto header = constructRpcRequesHeader(method);
             Message theRequest = (Message) args[1];
-            final Object res;
+            final RpcResponseWrapper res;
             try {
-                res = client.call(RPC.RpcKind.RPC_PROTOCOL_BUFFER,
+                res = (RpcResponseWrapper) client.call(RPC.RpcKind.RPC_PROTOCOL_BUFFER,
                         new RpcRequestWrapper(header, theRequest), remoteId);
-            } catch (IOException e) {
-                e.printStackTrace();
+            } catch (Throwable e) {
+                throw new ServiceException(e);
             }
 
-            return null;
+            if (LOG.isDebugEnabled()) {
+                long callTime = System.currentTimeMillis() - startTime;
+                LOG.debug("Call: " + method.getName() + " took " + callTime + "ms");
+            }
+
+            Message prototype = null;
+            try {
+                prototype = getReturnType(method);
+            } catch (Exception e) {
+                throw new ServiceException(e);
+            }
+            Message returnMessage = null;
+            try {
+                returnMessage = prototype.newBuilderForType()
+                        .mergeFrom(res.theResponseRead)
+                        .build();
+            } catch (Throwable t) {
+                throw new ServiceException(t);
+            }
+
+            return returnMessage;
+        }
+
+        private Message getReturnType(Method method) throws Exception {
+            Class<?> returnType = method.getReturnType();
+            Method newInstMethod = returnType.getMethod("getDefaultInstance");
+            newInstMethod.setAccessible(true);
+            return (Message) newInstMethod.invoke(null, (Object []) null);
         }
     }
 
