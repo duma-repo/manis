@@ -8,6 +8,7 @@ import org.apache.commons.logging.LogFactory;
 
 import javax.net.SocketFactory;
 import java.io.*;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
@@ -29,6 +30,7 @@ public class SerializableRpcEngine implements RpcEngine {
         private String methodName;
         private Class<?>[] parameterClasses;
         private Object[] parameters;
+        private long clientVersion;
         private String declaringClassProtocolName;
 
         /**
@@ -37,12 +39,33 @@ public class SerializableRpcEngine implements RpcEngine {
         @SuppressWarnings("unused")
         public Invocation() {}
 
-        public Invocation(Method method, Object[] args) {
+        public Invocation(Method method, Object[] args, long clientVersion) {
             this.methodName = method.getName();
             this.parameterClasses = method.getParameterTypes();
             this.parameters = args;
             this.declaringClassProtocolName =
                     RPC.getProtocolName(method.getDeclaringClass());
+            this.clientVersion = clientVersion;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public Class<?>[] getParameterClasses() {
+            return parameterClasses;
+        }
+
+        public Object[] getParameters() {
+            return parameters;
+        }
+
+        public String getDeclaringClassProtocolName() {
+            return declaringClassProtocolName;
+        }
+
+        public long getClientVersion() {
+            return clientVersion;
         }
 
         @Override
@@ -53,7 +76,9 @@ public class SerializableRpcEngine implements RpcEngine {
 
             objOut.writeObject(declaringClassProtocolName);
             objOut.writeObject(methodName);
+            objOut.writeLong(clientVersion);
             objOut.writeObject(parameters);
+            objOut.writeObject(parameterClasses);
             objOut.flush();
 
             out.writeInt(byteArrOut.toByteArray().length);
@@ -72,7 +97,9 @@ public class SerializableRpcEngine implements RpcEngine {
             try {
                 declaringClassProtocolName = (String) objIn.readObject();
                 methodName = (String) objIn.readObject();
+                clientVersion = objIn.readLong();
                 parameters = (Object []) objIn.readObject();
+                parameterClasses = (Class<?>[])objIn.readObject();
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
                 throw new IOException("Class not found when deserialize.");
@@ -98,6 +125,7 @@ public class SerializableRpcEngine implements RpcEngine {
     private static class Invoker implements RpcInvocationHandler {
         private Client.ConnectionId remoteId;
         private Client client;
+        private final long clientProtocolVersion;
 
         private Invoker(Class<?> protocol, InetSocketAddress address,
                 Configuration conf, SocketFactory factory,
@@ -105,6 +133,7 @@ public class SerializableRpcEngine implements RpcEngine {
                 throws IOException {
             this.remoteId = new Client.ConnectionId(address, protocol, rpcTimeOut, conf);
             this.client = new Client(ObjectWritable.class, conf, factory);
+            this.clientProtocolVersion = RPC.getProtocolVersion(protocol);
         }
 
         @Override
@@ -115,7 +144,7 @@ public class SerializableRpcEngine implements RpcEngine {
             }
             ObjectWritable value;
             value = (ObjectWritable) client.call(RPC.RpcKind.RPC_SERIALIZABLE,
-                    new Invocation(method, args), this.remoteId);
+                    new Invocation(method, args, clientProtocolVersion), this.remoteId);
             if (LOG.isDebugEnabled()) {
                 long callTime = System.currentTimeMillis() - startTime;
                 LOG.debug("Call " + method.getName() + " " + callTime);
@@ -153,11 +182,50 @@ public class SerializableRpcEngine implements RpcEngine {
         }
 
         static class SerializableRpcInvoker implements RPC.RpcInvoker {
+            // TODO: 2019/8/13 跟protocol 的相同方法抽象出来
+            private static ProtoClassProtoImpl getProtocolImp(RPC.Server server,
+                                                              String protocolName,
+                                                              long clientVersion) {
+                ProtoNameVer pv = new ProtoNameVer(protocolName, clientVersion);
+                ProtoClassProtoImpl impl =
+                        server.getProtocolImplMap(RPC.RpcKind.RPC_SERIALIZABLE).get(pv);
+                if (impl == null) {
+                    //todo throw exception
+                }
+                return impl;
+            }
 
             @Override
             public Writable call(RPC.Server server, String protocol,
                                  Writable rpcRequest, long receiveTime) throws Exception {
                 System.out.println("call in SerializableRpcEngine");
+                Invocation request = (Invocation) rpcRequest;
+
+                String methodName = request.getMethodName();
+                String protoName = request.getDeclaringClassProtocolName();
+                long clientVer = request.getClientVersion();
+                System.out.println(protoName);
+                System.out.println(clientVer);
+                if (server.verbose) {
+                    LOG.info("Call: protocol=" + protocol + ", method=" + methodName);
+                }
+                ProtoClassProtoImpl protocolImpl = getProtocolImp(server, protoName, clientVer);
+
+                long startTime = System.currentTimeMillis();
+                int qTime = (int) (startTime = receiveTime);
+                Exception exception = null;
+                try {
+                    Method method = protocolImpl.protocolClass
+                            .getMethod(methodName, request.getParameterClasses());
+                    method.setAccessible(true);
+                    Object value =
+                            method.invoke(protocolImpl.protocolImpl, request.getParameters());
+                    System.out.println("in call");
+                    System.out.println(value);
+                    return new ObjectWritable(method.getReturnType(), value);
+                } catch (InvocationTargetException e) {
+
+                }
                 return null;
             }
         }
