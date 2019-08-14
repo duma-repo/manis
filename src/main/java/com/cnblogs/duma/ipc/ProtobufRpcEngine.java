@@ -398,7 +398,7 @@ public class ProtobufRpcEngine implements RpcEngine {
                 Message result;
                 long startTime = System.currentTimeMillis();
                 // 从接受请求到调用前的时间
-                int qTime = (int) (startTime = receiveTime);
+                int qTime = (int) (startTime - receiveTime);
                 Exception exception = null;
                 try {
                     result = service.callBlockingMethod(methodDescriptor, null, param);
