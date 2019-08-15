@@ -1,14 +1,16 @@
 package com.cnblogs.duma.protocolPB;
 
+import com.cnblogs.duma.ipc.RPC;
 import com.cnblogs.duma.protocol.ClientProtocol;
 import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos.GetTableCountRequestProto;
 import com.cnblogs.duma.protocol.proto.ClientManisDbProtocolProtos.GetTableCountResponseProto;
 import com.google.protobuf.ServiceException;
 
+import java.io.Closeable;
 import java.io.IOException;
 
 public class ClientManisDbProtocolTranslatorPB implements
-        ClientProtocol {
+        ClientProtocol, Closeable {
     private ClientManisDbProtocolPB rpcProxy;
 
     public ClientManisDbProtocolTranslatorPB(ClientManisDbProtocolPB proxy) {
@@ -26,5 +28,10 @@ public class ClientManisDbProtocolTranslatorPB implements
         } catch (ServiceException e) {
             throw new IOException(e);
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        RPC.stopProxy(rpcProxy);
     }
 }

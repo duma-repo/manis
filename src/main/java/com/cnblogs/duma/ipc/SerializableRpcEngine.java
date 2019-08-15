@@ -151,6 +151,11 @@ public class SerializableRpcEngine implements RpcEngine {
             }
             return value.get();
         }
+
+        @Override
+        public void close() throws IOException {
+
+        }
     }
 
     @Override

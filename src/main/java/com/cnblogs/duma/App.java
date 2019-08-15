@@ -25,12 +25,13 @@ public class App
 
         Configuration conf = new Configuration();
 
-//        ManisClient manisClient = new ManisClient(URI.create("manis://localhost:8866"), conf);
-//        int res = manisClient.getTableCount("db1", "tb1");
-//        System.out.println(res);
+        ManisClient manisClient = new ManisClient(URI.create("manis://localhost:8866"), conf);
+        int res = manisClient.getTableCount("db1", "tb1");
+        System.out.println(res);
 
         Manager manager = new Manager(URI.create("manis://localhost:8866"), conf);
-        manager.setMaxTable(1);
+        boolean res2 = manager.setMaxTable(1);
+        System.out.println(res2);
 
 
         while (true) {

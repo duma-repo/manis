@@ -147,6 +147,11 @@ public class ProtobufRpcEngine implements RpcEngine {
             newInstMethod.setAccessible(true);
             return (Message) newInstMethod.invoke(null, (Object []) null);
         }
+
+        @Override
+        public void close() throws IOException {
+
+        }
     }
 
     interface RpcWrapper extends Writable {
