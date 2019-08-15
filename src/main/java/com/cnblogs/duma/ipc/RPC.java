@@ -2,13 +2,18 @@ package com.cnblogs.duma.ipc;
 
 import com.cnblogs.duma.conf.Configuration;
 import com.cnblogs.duma.io.Writable;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import javax.net.SocketFactory;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,6 +23,7 @@ import java.util.Map;
  * @author duma
  */
 public class RPC {
+    static final Log LOG = LogFactory.getLog(RPC.class);
     final static int RPC_SERVICE_CLASS_DEFAULT = 0;
     public enum RpcKind {
         /**
@@ -142,6 +148,40 @@ public class RPC {
          */
         return getProtocolEngine(protocol, conf).getProxy(protocol, clientVersion,
                 address, conf, factory, rpcTimeOut);
+    }
+
+    /**
+     * 停止代理，该代理需要实现 {@link Closeable} 或者关联 {@link RpcInvocationHandler}
+     * @param proxy 需要停止的代理
+     *
+     * @throws IllegalArgumentException
+     *      代理没有实现 {@link Closeable} 接口也不是实现该接口的 {@link InvocationHandler}
+     */
+    public static void stopProxy(Object proxy) {
+        if (proxy == null) {
+            throw new IllegalArgumentException("Cannot close proxy since it is null");
+        }
+
+        try {
+            if (proxy instanceof Closeable) {
+                ((Closeable) proxy).close();
+            }
+            InvocationHandler handler = Proxy.getInvocationHandler(proxy);
+            if (handler instanceof Closeable) {
+                ((Closeable) handler).close();
+                return;
+            }
+        } catch (IOException e) {
+            LOG.error("Closing proxy or invocation handler caused exception", e);
+        } catch (IllegalArgumentException e) {
+            LOG.error("RPC.stopProxy called on non proxy: class=" + proxy.getClass().getName(), e);
+        }
+
+        // proxy 没有 close 方法
+        throw new IllegalArgumentException(
+                "Cannot close proxy - is not Closeable or "
+                        + "does not provide closeable invocation handler "
+                        + proxy.getClass());
     }
 
     /**
