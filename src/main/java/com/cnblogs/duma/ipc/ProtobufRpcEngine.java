@@ -150,7 +150,7 @@ public class ProtobufRpcEngine implements RpcEngine {
 
         @Override
         public void close() throws IOException {
-
+            client.stop();
         }
     }
 

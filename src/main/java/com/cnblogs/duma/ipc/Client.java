@@ -119,6 +119,32 @@ public class Client {
         this.sendParamsExecutor = clientExecutorFactory.refAndGetInstance();
     }
 
+    public void stop() {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Stopping client");
+        }
+
+        if (!running.compareAndSet(true, false)) {
+            return;
+        }
+
+        // 唤醒 connection
+        synchronized (connections) {
+            for (Connection connection : connections.values()) {
+                connection.interrupt();
+            }
+        }
+
+        // 等待，直到所有connection关闭
+        while (!connections.isEmpty()) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+            }
+        }
+        clientExecutorFactory.unrefAndCleanup();
+    }
+
     void checkResponse(RpcResponseHeaderProto header) throws IOException {
         if (header == null) {
             throw new IOException("Response is null.");
@@ -535,7 +561,7 @@ public class Client {
                     // 如果 calls 为空，先等待一段时间
                     wait(timeout);
                 } catch (InterruptedException e) {
-                    LOG.warn("Connection thread was interrupted in client.", e);
+                    // 被中断属于正常现象， 无需报警
                 }
             }
 

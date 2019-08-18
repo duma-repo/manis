@@ -28,15 +28,16 @@ public class App
         ManisClient manisClient = new ManisClient(URI.create("manis://localhost:8866"), conf);
         int res = manisClient.getTableCount("db1", "tb1");
         System.out.println(res);
+        manisClient.close();
 
         Manager manager = new Manager(URI.create("manis://localhost:8866"), conf);
         boolean res2 = manager.setMaxTable(1);
         System.out.println(res2);
+        manager.close();
 
-
-        while (true) {
-            System.out.println("wait close");
-            Thread.sleep(1000);
-        }
+//        while (true) {
+//            System.out.println("wait close");
+//            Thread.sleep(1000);
+//        }
     }
 }

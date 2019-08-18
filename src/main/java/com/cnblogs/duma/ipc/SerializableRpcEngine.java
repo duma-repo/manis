@@ -154,7 +154,7 @@ public class SerializableRpcEngine implements RpcEngine {
 
         @Override
         public void close() throws IOException {
-
+            client.stop();
         }
     }
 
