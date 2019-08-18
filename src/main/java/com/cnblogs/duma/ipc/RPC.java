@@ -30,8 +30,9 @@ public class RPC {
          * RPC_SERIALIZABLE: SerializableRpcEngine
          * RPC_PROTOCOL_BUFFER: ProtoBufRpcEngine
          */
-        RPC_SERIALIZABLE ((short) 1),
-        RPC_PROTOCOL_BUFFER ((short) 2);
+        RPC_BUILTIN ((short) 1),
+        RPC_SERIALIZABLE ((short) 2),
+        RPC_PROTOCOL_BUFFER ((short) 3);
 
         final static int MAX_INDEX = RPC_PROTOCOL_BUFFER.value;
         public final short value;

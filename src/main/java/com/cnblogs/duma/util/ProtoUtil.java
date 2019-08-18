@@ -69,6 +69,7 @@ public class ProtoUtil {
 
     static RpcKindProto convertRpcKind(RPC.RpcKind rpcKind) {
         switch (rpcKind) {
+            case RPC_BUILTIN: return RpcKindProto.RPC_BUILTIN;
             case RPC_SERIALIZABLE: return RpcKindProto.RPC_SERIALIZABLE;
             case RPC_PROTOCOL_BUFFER: return RpcKindProto.RPC_PROTOCOL_BUFFER;
             default: return null;
@@ -77,6 +78,7 @@ public class ProtoUtil {
 
     public static RPC.RpcKind converRpcKind(RpcKindProto rpcKind) {
         switch (rpcKind) {
+            case RPC_BUILTIN: return RPC.RpcKind.RPC_BUILTIN;
             case RPC_SERIALIZABLE: return RPC.RpcKind.RPC_SERIALIZABLE;
             case RPC_PROTOCOL_BUFFER: return RPC.RpcKind.RPC_PROTOCOL_BUFFER;
             default: return null;

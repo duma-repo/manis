@@ -13,8 +13,6 @@ import com.cnblogs.duma.util.StringUtils;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.Message;
-import com.sun.org.apache.bcel.internal.generic.Select;
-import com.sun.xml.internal.bind.v2.util.ByteArrayOutputStreamEx;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -312,6 +310,11 @@ public abstract class Server {
         private ByteBuffer response;
         private final RPC.RpcKind rpcKind;
         private final byte[] clientId;
+
+        public Call(int id, int retryCount, Writable rpcRequest, Connection connection) {
+            this(id, retryCount, rpcRequest, connection,
+                    RPC.RpcKind.RPC_BUILTIN, RpcConstants.DUMMY_CLIENT_ID);
+        }
 
         public Call(int id, int retryCount, Writable rpcRequest,
                     Connection connection, RPC.RpcKind rpcKind, byte[] clientId) {
@@ -1016,7 +1019,7 @@ public abstract class Server {
          * @param buf RPC 请求的上下文或者调用请求
          */
         private void processOneRpc(byte[] buf)
-                throws WrappedRpcServerException, InterruptedException {
+                throws IOException, InterruptedException {
             int callId = -1;
             int retry = RpcConstants.INVALID_RETRY_COUNT;
 
@@ -1043,7 +1046,11 @@ public abstract class Server {
 
             } catch (WrappedRpcServerException wrse) {
                 Throwable ioe = wrse.getCause();
-                // todo 发送报错信息给客户端
+                ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                Call call = new Call(callId, retry, null, this);
+                setupResponse(buffer, call, RpcStatusProto.FATAL, wrse.getErrorCode(),
+                        null, ioe.getClass().getName(), ioe.getMessage());
+                responder.doResponse(call);
                 throw wrse;
             }
         }
@@ -1062,7 +1069,7 @@ public abstract class Server {
         }
 
         /**
-         * todo 注释
+         *  处理一个 RPC 请求，前提是 RPC header 和 context 已经读取
          * @param header
          * @param dis
          * @throws WrappedRpcServerException

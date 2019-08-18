@@ -18,11 +18,11 @@ public class TestSerDeser {
     @Test
     public void testSerDeser() throws Exception {
         Class clazz = Class.forName("com.cnblogs.duma.ipc.SerializableRpcEngine$Invocation");
-        Constructor constructor = clazz.getConstructor(Method.class, Object[].class);
+        Constructor constructor = clazz.getConstructor(Method.class, Object[].class, long.class);
         constructor.setAccessible(true);
         Method method = TestSerDeser.class.getMethod("testFunc", int.class, int.class);
         Object[] args = new Object[]{1, 2};
-        Object object = constructor.newInstance(method, args);
+        Object object = constructor.newInstance(method, args, 1);
 
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(bo);

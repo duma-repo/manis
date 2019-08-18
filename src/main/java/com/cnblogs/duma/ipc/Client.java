@@ -17,7 +17,6 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.CodedOutputStream;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import sun.nio.ch.Net;
 
 import javax.net.SocketFactory;
 import java.io.*;
@@ -661,7 +660,6 @@ public class Client {
                              */
                             markClosed(e);
                         } finally {
-                            //todo close stream 关闭临时输出流
                             IOUtils.closeStream(tmpOut);
                         }
                     }

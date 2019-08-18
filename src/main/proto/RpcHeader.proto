@@ -5,6 +5,7 @@ option java_generate_equals_and_hash = true;
 package duma.manis;
 
 enum RpcKindProto {
+    RPC_BUILTIN          = 0;  // 内部使用，为了占位
     RPC_SERIALIZABLE     = 1;  // 使用 WritableRpcEngine
     RPC_PROTOCOL_BUFFER  = 2;  // 使用 ProtobufRpcEngine
 }
